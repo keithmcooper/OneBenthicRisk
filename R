@@ -1,0 +1,1830 @@
+################################################################################
+####                MACROFAUNAL SENSITIVITY MODEL V1.0 (2025)               ####
+################################################################################
+#### SENSITIVITY: LOAD REQUIRED DATA ####
+
+## Set working directory
+setwd("C:/Users/kmc00/OneDrive - CEFAS/R_PROJECTS/OneBenthicCertain/R")
+
+## Load pacakges
+library(pool)
+library(DBI)
+library (RPostgres)
+library(dplyr)
+
+## Create connection to OneBenthic
+Sys.setenv(R_CONFIG_ACTIVE = "one_benthic")
+
+dw <- config::get()
+
+pool <- dbPool(drv = dbDriver(dw$driver),
+               dbname = dw$database,
+               host = dw$server,
+               port =  dw$port,
+               user = dw$uid,
+               password = dw$pwd)
+
+## Get sensitivity scores by aphia id ( from View 'taxon_sensitivity_score_phy_generic')
+traits = dbGetQuery(pool,"SELECT 
+                    worrms_aphiaid as aphiaid,
+                    taxon_sensitvity_score_phy_generic as sensitivity
+                    FROM
+                    faunal_data.taxon_sensitivity_score_phy_generic;")
+
+## Inspect sensitivity scores
+head(traits)
+
+## Find min and max sensitivity scores
+min(traits$sensitivity)#20
+max(traits$sensitivity)#59
+
+## Get taxon abundance data by sample
+taxa_by_st = dbGetQuery(pool,"
+SELECT
+s.samplecode,
+s.samplelat,
+s.samplelong,
+ts.worrms_aphiaid as aphiaid,
+ts.abund
+
+FROM 
+associations.survey as su
+INNER JOIN associations.surveysample as ss ON ss.survey_surveyname = su.surveyname 
+INNER JOIN samples.sample as s ON ss.sample_samplecode = s.samplecode
+INNER JOIN faunal_data.taxasample as ts ON s.samplecode= ts.sample_samplecode 
+INNER JOIN faunal_data.worrms as w ON w.aphiaid = ts.worrms_aphiaid 
+
+WHERE (s.gear_gearcode = 'MHN' OR
+s.gear_gearcode = 'DG' OR
+s.gear_gearcode = 'VV' OR
+s.gear_gearcode = 'SM' OR
+s.gear_gearcode = 'NIOZ' OR
+s.gear_gearcode = 'BC_0.1' OR
+s.gear_gearcode = 'C/VV'OR
+s.gear_gearcode = 'BC' OR
+s.gear_gearcode = 'DVV' OR
+s.gear_gearcode = 'DG/VV')
+AND (ts.taxaqual_qualifier NOT IN ('J','E','EP', 'L', 'MEGA', 'PR', 'PU', 'TAIL', 'Z', 'SP', 'FRAG','FUR', 'DEAD') OR ts.taxaqual_qualifier IS NULL)
+AND (s.treatment = 'R' or s.treatment IS NULL)
+AND s.macrosieve= 1
+AND w.include = TRUE
+AND s.samplelat > 47.92938
+AND ts.abund IS NOT NULL
+AND s.id <= 52951
+AND su.surveyname NOT IN ('Long-Term Monitoring Program Muddy-sandy intertidal flats in Kandalaksha Bay (White Sea)')
+--AND su.datapubliclyavailable = TRUE
+ORDER by s.samplecode,ts.abund desc;")
+
+## Inspect data
+head(taxa_by_st)
+dim(taxa_by_st)# 1194355       5
+
+## Examine both dataframes
+names(traits)
+names(taxa_by_st)
+
+## Merge dataframes
+df_merge <- merge(taxa_by_st, traits, by = 'aphiaid', all = F)
+head(df_merge)
+
+## Transform abundances (sqrt)
+df_merge$abund_trans <- sqrt(df_merge$abund)
+
+## Take cols of interest
+df_merge2 <- df_merge[,c(2,3,4,1,6,7)]# samplecode, samplelat, samplelong, aphiaid, sensitvity, abund_trans
+head(df_merge2)
+
+## Order by samplecode
+df_merge3 <- df_merge2[order(df_merge2$samplecode),]
+head(df_merge3)
+
+## Add column 'sensitvity_abund_trans' for 'sensitivity' multiplied by 'abund_trans'
+df_merge3$sensitvity_abund_trans <- df_merge3$sensitivity * df_merge3$abund_trans
+head(df_merge3)
+View(df_merge3)
+## Calculate mean individual sensitivity score (sum of 'sensitvity_abund_trans' across all taxa divided by total number of individuals in the sample)
+library(dplyr)
+df_merge4 <-  df_merge3 %>% group_by(samplecode,samplelong,samplelat)%>% summarise(sum_indiv = sum(abund_trans), score =sum(sensitvity_abund_trans),sample_sensitivity = score/sum_indiv)
+head(df_merge4)
+
+## Remove unwanted cols (i.e.'sum_indiv' and 'score')
+df_merge5 <- df_merge4[,c(1:3,6)]
+head(df_merge5)
+dim(df_merge5)#37925     4
+#_______________________________________________________________________________
+#### SENSITIVITY: SAMPLE LOCATIONS (FIGURE 1)  ####
+
+## Load libraries
+library(sf)
+library(rasterVis)# use raster in ggplot
+library(raster)
+library(ggnewscale)
+library(scales)
+library(ggplot2)
+library(dplyr)
+library(shadowtext)
+
+## Load countries polygon and Norther Ireland border
+countries <- st_read(file.path("C:\\Users\\KMC00\\OneDrive - CEFAS\\R_PROJECTS\\OneBenthicHotSpots\\DATA\\EuropeLiteScoWal.shp"))
+ni_border <- st_read(file.path("C:\\Users\\KMC00\\OneDrive - CEFAS\\R_PROJECTS\\OneBenthicHotSpots\\DATA\\ni_border.shp"))
+
+## Load DEM
+dem <- raster("C:\\Users\\kmc00\\OneDrive - CEFAS\\R_PROJECTS\\OneBenthicHotSpots\\DATA\\GEBCO_15_Nov_2023_be52dc9c9b2d\\gebco_2023_n61.0_s48.0_w-11.0_e11.0.tif")
+
+## Reduce size of DEM (optional)
+#dem2 <- aggregate(dem, fact=5)
+#dem <- dem2
+
+## Remove elevations above sea level.
+dem[dem>0] <- 0
+
+## Create slope and hillshade
+slope = terrain(dem, opt='slope')
+aspect = terrain(dem, opt='aspect')
+hill = hillShade(slope, aspect, 40, 270)
+
+dem_spdf <- as(dem, "SpatialPixelsDataFrame")
+dem_spdf <- as.data.frame(dem_spdf)
+colnames(dem_spdf) <- c("value", "x", "y")
+
+hill_spdf <- as(hill, "SpatialPixelsDataFrame")
+hill_spdf <- as.data.frame(hill_spdf)
+colnames(hill_spdf) <- c("value", "x", "y")
+
+## Get unique position coordinates
+unique_pos <- df_merge5 %>% dplyr::select(samplecode,samplelong, samplelat)%>%unique
+
+## Convert latitude and longitude into geometries using st_as_sf(). 
+points <- unique_pos %>%
+  st_as_sf(coords = c("samplelong", "samplelat"), crs = 4326)
+
+## st_coordinates() extracts the lon/lat values as a data frame with X and Y columns so you can use geom_point (ability to resize points etc)
+points2 <- st_coordinates(points)
+points2 <- as.data.frame(st_coordinates(points))
+dim(points2)
+## Create plot (map of sample locations, place names and background bathymetry)
+# For bathy colours and breakpoints: https://stackoverflow.com/questions/70739780/is-there-a-scale-function-with-which-i-can-use-4-breaks-points
+
+PSam2=ggplot()+ 
+  geom_raster(data = hill_spdf, aes(x = x, y = y, fill = value)) +
+  scale_fill_gradient(low = "black", high = "white") +
+  geom_raster(data = dem_spdf, aes(x = x, y = y, fill = value), alpha=0.7)+
+  scale_fill_gradientn(
+    colours = c("#051650","#02367b","#006ca5","#0496c7", "#04bade","#55e2e9"),
+    limits  = c(-3800,0),
+    values  = scales::rescale(c(-3800,-1000,-100,-50,-25,0), from = c(-3800,0)))+
+  geom_point(data = points2,aes(x = X, y = Y), fill="yellow",alpha = 0.4,colour="yellow",size=0.1)+
+  geom_sf(data=countries, fill ="black",col ="black")+ 
+  geom_sf(data=ni_border, ,col ="grey",linewidth = 0.2)+ 
+  coord_sf(xlim = c(-10, 9),ylim = c(49, 60))+
+  theme_bw()+#text = element_text(size=40)
+  xlab("Longitude") +
+  ylab("Latitude")+
+  annotate("text",x=c(-1.3),y=c(52.5),label=c("UNITED \nKINGDOM"),color="white", size=5)+#3
+  annotate("text",x=c(-6.7),y=c(51.2),label=c("Celtic \nSea"),color="white", size=7)+
+  annotate("text",x=c(-1.1),y=c(50.15),label=c("English Channel"),color="white", size=7)+
+  annotate("text",x=c(-4.7),y=c(53.8),label=c("Irish Sea"),color="white", size=6)+
+  annotate("text",x=c(3),y=c(56.5),label=c("North Sea"),color="white", size=7)+
+  annotate("text",x=c(6.3),y=c(54.5),label=c("German Bight"),color="white", size=5)+
+  annotate("text",x=c(4.3),y=c(54.3),label=c("Oyster Ground"),color="white", size=5)+
+  annotate("text",x=c(2.9),y=c(51.9),label=c("Southern \nBight"),color="white", size=5)+
+  annotate("text",x=c(0),y=c(58.5),label=c("Fladden Ground"),color="white", size=5)+
+  annotate("text",x=c(2.33),y=c(54.9),label=c("Dogger Bank"),color="white", size=5)+
+  annotate("text",x=c(5.6),y=c(58.3),label=c("Norwegian Trench"),color="white", size=5, angle = -40)+
+  annotate("text",x=c(-1),y=c(56.5),label=c("Scalp \nBank"),color="white", size=5)+
+  annotate("text",x=c(3),y=c(58),label=c("Ling Bank"),color="white", size=5)+
+  annotate("text",x=c(2.5),y=c(59),label=c("Utsira \nHigh"),color="white", size=5)+
+  annotate("text",x=c(5.1),y=c(57),label=c("Fisher \nBanks"),color="white", size=5)+
+  annotate("text",x=c(7.5),y=c(57),label=c("Jutland \nBank"),color="white", size=5)+
+  annotate("text",x=c(-5.8),y=c(52),label=c("St George's \nChannel"),color="white", size=4.5)+
+  annotate("text",x=c(-7.6),y=c(53.2),label=c("IRELAND"),color="white", size=5)+
+  annotate("text",x=c(1),y=c(49),label=c("FRANCE"),color="white", size=5)+
+  annotate("text",x=c(6.5),y=c(52.5),label=c("NETHERLANDS"),color="white", size=5)+
+  annotate("text",x=c(9.05),y=c(56),label=c("DENMARK"),color="white", size=5)+
+  annotate("text",x=c(3.9),y=c(51),label=c("BELGIUM"),color="white", size=5)+
+  annotate("text",x=c(7.6),y=c(59),label=c("NORWAY"),color="white", size=5)+
+  annotate("text",x=c(9),y=c(53),label=c("GERMANY"),color="white", size=5)+
+  annotate("text",x=c(-4.5),y=c(54.3),label=c("Isle \nof \nMan"),color="white", size=4)+
+  annotate("text",x=c(-5.5),y=c(54.97),label=c("North\nChannel"),color="white", size=3)+
+  annotate("text",x=c(-6.7),y=c(56.9),label=c("Hebrides"),color="white", size=5)+
+  annotate("text",x=c(0.32),y=c(56.5),label=c("Devil's \nHole"),color="white", size=5)+
+  annotate("text",x=c(0.1666),y=c(55.883),label=c("Swallow \nHole"),color="white", size=5)+
+  annotate("text",x=c(-2.4),y=c(56.12),label=c("Firth of Forth"),color="white", size=4)+
+  annotate("text",x=c(-9),y=c(50),label=c("SW \nApproaches"),color="white", size=6)+
+  shadowtext::geom_shadowtext(aes(label = 'Inner \nSilver \nPit'),x=1,y=53.5, size=5,bg.color="#0496c7", bg.r=0.1, color = "white")+#hjust=1,
+  shadowtext::geom_shadowtext(aes(label = 'Bristol Channel'),x=-4.8,y=51.4, size=5,bg.color="#0496c7", bg.r=0.1, color = "white")+#hjust=1,
+  shadowtext::geom_shadowtext(aes(label = 'Outher \nThames'),x=1.35,y=51.57,angle = 0, size=4,bg.color="#0496c7", bg.r=0.1, color = "white")+#hjust=1,
+  shadowtext::geom_shadowtext(aes(label = 'Strait of Dover'),x=1.5,y=51,angle = 45, size=5,bg.color="#0496c7", bg.r=0.1, color = "white")+#hjust=1,
+  theme(legend.background=element_blank(),legend.text = element_text(color="white",size= 20),legend.title = element_text(color = "white", size = 20))+#make legend background transparent and text white
+  theme(legend.position=c(0.9,0.16))+#legend.position = "bottom","none"#legend.position = "bottom"
+  theme(legend.key.size = unit(1.5, "cm"))+
+  theme(text = element_text(size = 22))+
+  labs(fill = "Bathymetry (m)\n")
+
+## Save Figure 1
+ggsave(plot = PSam2,
+       filename = paste0("C:\\Users\\KMC00\\OneDrive - CEFAS\\R_PROJECTS\\OneBenthicCertain\\OUTPUTS\\Figure_1.png"),
+       width = 41,height = 40,units = "cm", pointsize = 48,
+       device = "png",limitsize = FALSE,bg="white")
+
+#_______________________________________________________________________________
+#### SENSITIVITY: REMOVE 'REPLICATES' TO ADDRESS SPATIAL AUTOCORRELATION ####
+
+## Load packages
+library(sp)
+
+## Set coordinates
+coordinates(df_merge5) <- c("samplelong", "samplelat")
+
+## Work out 50m distance in decimal degrees. 1 degree of latitude =111,000m
+50/111000# degrees for 50m #0.0004504505
+
+## Set distance within which to remove replicates (zero)
+zd <- zerodist(df_merge5,zero = 0.0004504505)
+
+## Drop replicates
+df_merge5_norep <- df_merge5[-zd[,2], ]
+dim(df_merge5_norep)# 22790     2
+
+## Change class to df
+df_merge5_norep_2=data.frame(df_merge5_norep)
+class(df_merge5_norep_2)
+names(df_merge5_norep_2)
+
+## Drop col 'optional'
+df_merge5_norep_3=df_merge5_norep_2[,1:(ncol(df_merge5_norep_2)-1)]
+head(df_merge5_norep_3)
+#View(df_merge5_norep_3)
+#_______________________________________________________________________________
+#### SENSITIVITY: SAVE DATA FOR MODELLING (DATA FOR ANNA) ####
+df_merge5_norep_3_2 <- df_merge5_norep_3
+df_merge5_norep_3_2$type <- 'numeric'
+df_merge5_norep_3_2$paper <- 'vulnerability'
+df_merge5_norep_3_2$metric <- 'sensitivity'
+head(df_merge5_norep_3_2)
+colnames(df_merge5_norep_3_2) <- c('sample','x','y','value','type','paper','metric')
+df_merge5_norep_3_2 <- df_merge5_norep_3_2[,c(6,1:3,7,5,4)]
+head(df_merge5_norep_3_2)
+write.csv(df_merge5_norep_3_2, "C:/Users/kmc00/OneDrive - CEFAS/R_PROJECTS/OneBenthicCertain/OUTPUTS/vulnerability_metric_sensitivity_4_modelling.csv", row.names=FALSE)
+#_______________________________________________________________________________
+#### SENSITIVITY: SPATIAL MODELLING ####
+#_______________________________________________________________________________
+#### SENSITIVITY: ENVIRONMENTAL PREDICTORS ####
+
+## Load libraries
+library(raster)
+#library(rgdal)
+
+## Load rasters
+bathy <- raster("C:/Users/KMC00/OneDrive - CEFAS/R_PROJECTS/TraitsMapping/DATA/Rasters/Final/bathy3.tif")
+cur <- raster("C:/Users/KMC00/OneDrive - CEFAS/R_PROJECTS/TraitsMapping/DATA/Rasters/Final/cur3.tif")
+gravel <- raster("C:/Users/KMC00/OneDrive - CEFAS/R_PROJECTS/TraitsMapping/DATA/Rasters/Mitchell/Predicted_Gravel_Fraction.tif")
+light <- raster("C:/Users/KMC00/OneDrive - CEFAS/R_PROJECTS/TraitsMapping/DATA/Rasters/Final/light3.tif")
+mud <- raster("C:/Users/KMC00/OneDrive - CEFAS/R_PROJECTS/TraitsMapping/DATA/Rasters/Mitchell/Predicted_Mud_Fraction.tif")
+oxy <- raster("C:/Users/KMC00/OneDrive - CEFAS/R_PROJECTS/TraitsMapping/DATA/Rasters/Final/oxy3.tif")
+phyto <- raster("C:/Users/KMC00/OneDrive - CEFAS/R_PROJECTS/TraitsMapping/DATA/Rasters/Final/phyto3.tif")
+sal <- raster("C:/Users/KMC00/OneDrive - CEFAS/R_PROJECTS/TraitsMapping/DATA/Rasters/Final/sal3.tif")
+sil <- raster("C:/Users/KMC00/OneDrive - CEFAS/R_PROJECTS/TraitsMapping/DATA/Rasters/Final/sil3.tif")
+spm <- raster("C:/Users/KMC00/OneDrive - CEFAS/R_PROJECTS/TraitsMapping/DATA/Rasters/Mitchell/SPM_MEAN.tif")
+temp <- raster("C:/Users/KMC00/OneDrive - CEFAS/R_PROJECTS/TraitsMapping/DATA/Rasters/Final/temp3.tif")
+wov <- raster("C:/Users/KMC00/OneDrive - CEFAS/R_PROJECTS/TraitsMapping/DATA/Rasters/Mitchell/Wave_veloc.tif")
+
+## Update crs
+crs(bathy) <- "+proj=longlat +datum=WGS84 +no_defs" 
+
+## Create raster stack
+predictors <- stack(bathy,cur,gravel,light,mud,oxy,phyto,sal,sil,spm,temp,wov)
+#predictors
+
+# Simple names for predictor variables
+names(predictors)=c("Bathymetry","Current","Gravel","Light","Mud","Oxygen","Phyto","Salinity","Silicate","SPM","Temperature","WOV")#"Sand",
+#names(predictors)
+
+## Plot raster stack
+#plot(predictors)
+#plot(bathy)
+
+#_______________________________________________________________________________
+#### SENSITIVITY: PREPARE DATA ####
+
+## Data for modelling
+metric <- df_merge5_norep_3
+
+## Data required for modelling sensitivity
+head(metric)
+
+## Unload extract function from tidyr package (otherwise it won't work)
+#.rs.unloadPackage("tidyr")
+
+## Extract predictor variables from raster stack
+sdata <- raster::extract(predictors, metric[,2:3])
+
+## Change from matrix to df
+class(sdata)
+sdata=as.data.frame(sdata)
+
+## Combine response and predictor variables into one dataframe
+sdata2=cbind(metric$samplecode,metric$sample_sensitivity,sdata)
+colnames(sdata2)[1] <- "Sample"
+colnames(sdata2)[2] <- "value"
+head(sdata2)
+#View(sdata2)
+dim(sdata2)# 22790    14
+
+## Remove rows with NA (outside spatial extent of rasters used for modelling)
+sdata3 <- na.omit(sdata2)
+dim(sdata3)# 22294    14
+#____________________________________________________________________________________________________________________
+#### SENSITIVITY: MAKE TRAINING AND TESTING SET ####
+
+## Equal splitting code, needs the caTools library;  sdata is the dataframe with cols for response and predictor variables
+
+## Call library
+#install.packages("caTools")
+library(caTools)
+
+## Vector for response variable
+Y <- sdata3[,2]
+
+## Take a random 90% of samples in proportion across the 11 groups
+set.seed(2)
+msk= sample.split( Y, SplitRatio = 9/10, group = NULL )
+
+## Check it was 90% 10% split
+
+## The training set
+train = sdata3[ msk,] 
+dim(train)# 20064    14
+head(train)
+
+## Remove sample labels for train
+train2 =train[,2:14]#was 11
+head(train2)
+
+## The test set
+test  = sdata3[ !msk,]
+dim(test) # 2230   14
+head(test)
+
+## Remove station labels for test
+test2 =test[,2:14]#was 11
+head(test2)
+str(test2)
+
+## Check number of observations for train (TRUE) and test (FALSE) sets
+print(table(Y, msk)) 
+
+## Check number of samples in train and test sets is equal to total
+dim(sdata3) # 22294    14
+dim(train)+dim(test)# 22294    28
+#____________________________________________________________________________________________________________________
+#### SENSITIVITY: DO MODELLING ####
+
+## Call library
+library(randomForest)
+
+## Model
+model <- value ~Bathymetry+Current+Gravel+Light+Mud+Oxygen+Phyto+Salinity+Silicate+SPM+Temperature+WOV
+
+## Prepare training data
+train3 <- train2[complete.cases(train2), ]
+train3$value <- as.numeric(train3$value)
+str(train3)
+head(train3)
+
+## Run model
+rf2 <- randomForest(model, data=train3)
+#_______________________________________________________________________________
+#### SENSITIVITY: EXAMINE HOW VARIABLES ARE INFLUENCING THE MODEL ####
+
+## Produce plots 
+varImpPlot(rf2)
+
+#png('OUTPUTS/STRUCTURE/variables_affecting_model_structure.png') # height=nrow(pr), width=ncol(pr) EFFECTS TRAITS
+varImpPlot(rf2)
+#dev.off()
+
+preds <- names(rf2$forest$xlevels)
+
+for (i in 1:length(preds)){
+  partialPlot(rf2, train2, preds[i], which.class ='1')
+  next
+}
+#____________________________________________________________________________________________________________________
+#### SENSITIVITY: EVALUATE THE MODEL PERFORMANCE ####
+
+## Predict cluster group for test set
+pred <- predict(rf2, newdata = test2)
+table(pred, test2$value)
+
+## We can test the accuracy as follows:
+#(80+100+151+91+64+402+34+41+19+74+15)/ nrow(test2)# 58.5%
+(80+108+163+92+67+403+41+45+19+82+20)/ nrow(test2)#61.3
+
+## Matches for nearest cluster neighbour(s), based on dendrogram in Cooper & Barry (2017) fig 3a.
+(10+0+0+17+0+18+1+16+6+14+20+21+7+9+24+19+3+2+3+4+59+0+23+5+65+7+2+200+13+13+102)/ nrow(test2)# 71%
+#_______________________________________________________________________________
+#### SENSITIVITY: PRODUCE FULL COVERAGE RASTER FOR METRIC ####
+
+## Use model to predict cluster group for each raster cell
+pr <- predict(predictors, rf2)
+plot(pr)
+
+## Save as .tiff
+writeRaster(pr,'C:\\Users\\KMC00\\OneDrive - CEFAS\\R_PROJECTS\\OneBenthicCertain\\OUTPUTS\\sensitivity.tif',overwrite=TRUE,format = "GTiff")
+#_______________________________________________________________________________
+#### RISK ELEMENT MAPS (FIGURE 3) ####
+#_______________________________________________________________________________
+#### RISK ELEMENT MAPS: SENSITIVITY ####
+
+## Load packages
+library(sf)
+library(terra)
+library(tidyterra)
+library(rasterVis)
+library(ggplot2)
+library(colorRamps)
+library(raster)
+library(dplyr)
+library(RColorBrewer)
+
+## Load countries polygon
+countries <- st_read(file.path("C:\\Users\\KMC00\\OneDrive - CEFAS\\R_PROJECTS\\OneBenthicHotSpots\\DATA\\EuropeLiteScoWal.shp"))
+
+## Load sensitivity raster (spatraster)
+#sensitivity_model <- rast('C:\\Users\\KMC00\\OneDrive - CEFAS\\R_PROJECTS\\OneBenthicCertain\\OUTPUTS\\sensitivity.tif')
+sensitivity_model <- rast('C:/Users/KMC00/OneDrive - CEFAS/R_PROJECTS/OneBenthicCertain/OUTPUTS/Vulnerability _Sensitivity/sensitivity_Mean_SQ.tif')# ANNA's FINAL MODEL
+#plot(sensitivity_model )
+
+## Reduce size of raster
+#sensitivity_model_agg <- aggregate(sensitivity, fact=7,fun = modal)
+
+## Sensitivity map
+sensitivity_plot <- ggplot() +
+  geom_spatraster(data = sensitivity_model) +
+  scale_fill_gradientn(colors= matlab.like(50),na.value="transparent")+
+  geom_sf(data=countries, fill ="black",col ="black")+
+  coord_sf(xlim = c(-10, 9),ylim = c(49, 60))+
+  xlab("Longitude")+
+  ylab("Latitude")+
+  theme_bw(base_size = 22)+
+  theme(legend.background=element_blank(),legend.text = element_text(color="white",size= 22))+#make legend background transparent and text white
+  theme(legend.position =c(0.9,0.2))+#legend.position = "bottom","none"#legend.position = "bottom"
+  theme(legend.title= element_blank())+
+  theme(plot.margin = unit(c(0,0.2,0,0.3), "cm"),legend.key.size = unit(0.5, "cm"))+#t, r, b, l
+  #theme(plot.margin = unit(c(0,0,0,0), "cm"),legend.key.size = unit(0.8, "cm"))+#t, r, b, l #0,0.2,0,0.3
+  theme(
+    panel.background = element_blank(),
+    axis.title.y = element_text(colour = "white"),
+    axis.title.x = element_blank(),
+    #axis.text.x = element_blank()
+    axis.text.x=element_text(colour = "white")
+    )+
+  theme(panel.grid.major = element_blank(),
+                   panel.grid.minor = element_blank())
+
+sensitivity_plot
+
+## Save sensitivity map
+ggsave(plot = sensitivity_plot,
+       filename = paste0("C:\\Users\\KMC00\\OneDrive - CEFAS\\R_PROJECTS\\OneBenthicCertain\\OUTPUTS\\sensitivity_plot.png"),
+       height = 200, width =200,units = "mm", dpi = 500,
+       device = "png",limitsize = FALSE,bg="white")#height = 65, width =180,
+#_______________________________________________________________________________
+#### RISK ELEMENT MAPS: SENSITIVITY CONFIDENCE ####
+
+## Load sensitivity raster (spatraster)
+#sensitivity_model <- rast('C:\\Users\\KMC00\\OneDrive - CEFAS\\R_PROJECTS\\OneBenthicCertain\\OUTPUTS\\sensitivity.tif')
+sensitivity_conf_model <- rast('C:/Users/KMC00/OneDrive - CEFAS/R_PROJECTS/OneBenthicCertain/OUTPUTS/Vulnerability _Sensitivity/sensitivity_CV_SQ.tif')# ANNA's FINAL MODEL
+#plot(sensitivity_model )
+
+## Reduce size of raster
+#sensitivity_model_agg <- aggregate(sensitivity, fact=7,fun = modal)
+
+## Sensitivity confidence map
+sensitivity_conf_plot <- ggplot() +
+  geom_spatraster(data = sensitivity_conf_model) +
+  scale_fill_gradientn(colors= brewer.pal(n = 5, name = "Greys"),na.value="transparent",name="CV")+#OrangesGreys
+  #scale_fill_gradientn(colors= matlab.like(50),na.value="transparent")+
+  geom_sf(data=countries, fill ="black",col ="black")+
+  coord_sf(xlim = c(-10, 9),ylim = c(49, 60))+
+  xlab("Longitude")+
+  ylab("Latitude")+
+  theme_bw(base_size = 24)+
+  theme(legend.background=element_blank(),legend.text = element_text(color="white",size= 20))+#make legend background transparent and text white
+  theme(legend.position =c(0.87,0.2))+#legend.position = "bottom","none"#legend.position = "bottom"
+  #theme(legend.title= element_blank())+
+  theme(legend.title= element_text(colour="white"))+
+  theme(plot.margin = unit(c(0,0.2,0,0.3), "cm"),legend.key.size = unit(0.5, "cm"))+#t, r, b, l
+theme(
+    panel.background = element_blank(),
+    axis.title.y = element_blank(),
+    axis.text.y = element_text(color="white"),
+   # axis.title.x = element_blank(),
+    #axis.text.x = element_blank()
+        axis.title.x = element_blank(),
+    axis.text.x = element_text(color="white")
+   )+
+  theme(panel.grid.major = element_blank(),
+                   panel.grid.minor = element_blank())
+
+sensitivity_conf_plot
+
+## Save sensitivity map
+ggsave(plot = sensitivity_plot,
+       filename = paste0("C:\\Users\\KMC00\\OneDrive - CEFAS\\R_PROJECTS\\OneBenthicCertain\\OUTPUTS\\sensitivity_plot.png"),
+       height = 200, width =200,units = "mm", dpi = 500,
+       device = "png",limitsize = FALSE,bg="white")#height = 65, width =180,
+
+#_______________________________________________________________________________
+### RISK ELEMENT MAPS: COMBINED SENSITIVITY AND CONFIDENCE PLOTS ####
+
+## Stitch plots together
+sens_fig <- ggpubr::ggarrange(sensitivity_plot,sensitivity_conf_plot,nrow=1,labels = c("a)", "b)"),font.label=list(color="black",size=21,face='plain'),align="v")#font.label=list(color="black",size=6,face='plain'),align="v") ,labels = c("D0", "D1", "D2","N")
+library(ggpubr)
+## Add x and y labels
+sens_fig2 <- annotate_figure(
+  sens_fig, 
+  bottom = text_grob("          Longitude", 
+  color = "black", face = "plain", size = 21),#,
+  left = text_grob("Latitude", 
+  color = "black", face = "plain", size = 21,rot = 90)
+)
+
+## Save combined plot
+ggsave(plot = sens_fig2,
+       filename = paste0("C:\\Users\\KMC00\\OneDrive - CEFAS\\R_PROJECTS\\OneBenthicCertain\\OUTPUTS\\sens_fig2.png"),
+       height = 200, width =380, units = "mm", dpi = 500,
+       device = "png",limitsize = FALSE,bg="white")#width =285
+
+#_______________________________________________________________________________
+#### RISK ELEMENT MAPS: BIODIVERSITY ####
+
+## Load biodiversity spatraster
+#biodiv_model <- rast("C:/Users/KMC00/OneDrive - CEFAS/R_PROJECTS/OneBenthicHotSpots/OUTPUTS/Biodiversity_new.tif")
+biodiv_model <- rast("C:/Users/kmc00/OneDrive - CEFAS/R_PROJECTS/OneBenthicHotSpots/OUTPUTS/Biodiversity_Cluster_Nov24/BiodiversityClusterMaxClass_Nov24.tif")## ANNA'S FINAL OUTPUT
+
+## Make cluster a factor
+values(biodiv_model) <- as.factor(values(biodiv_model))
+unique(biodiv_model)
+
+## Assemblage map
+biodiv_plot <- ggplot() +
+  geom_spatraster(data = biodiv_model) +
+  scale_fill_manual(values = c("#37C331","#6FD326","#A8E21B","#E0F210","#F3F223","#E2E256","#D1D189","#C0C1BC","white"),name="Cluster", na.translate = F)+
+  geom_sf(data=countries, fill ="black",col ="black")+
+  coord_sf(xlim = c(-10, 9),ylim = c(49, 60))+
+   scale_fill_manual(breaks = c('1','2','6','7','5','3','4','8'), values = c("#37C331", "#6FD326" ,"#A8E21B", "#E0F210", "#F3F223","#E2E256",  "#D1D189",  "#C0C1BC" ,"white"),na.value="transparent")+#'2','1','7','6','5','4','3','8'
+  xlab("Longitude")+
+  ylab("Latitude")+
+  theme_bw(base_size = 22)+
+  theme(legend.background=element_blank(),legend.text = element_text(color="white",size= 22))+#make legend background transparent and text white
+  theme(legend.position=c(0.87,0.2))+#legend.position = "bottom","none"#legend.position = "bottom"
+  theme(legend.title= element_blank())+
+  theme(plot.margin = unit(c(0,0,0,0), "cm"),legend.key.size = unit(0.8, "cm"))+#t, r, b, l
+  theme(
+    panel.background = element_blank(),
+    axis.title.y = element_text(colour = "white"),
+    axis.title.x = element_blank(),
+    #axis.text.x = element_blank()
+    axis.text.x=element_text(colour = "white")
+    )+
+  #theme(legend.title = element_text( size=2), legend.text=element_text(size=10))+
+    theme(panel.grid.major = element_blank(),
+                     panel.grid.minor = element_blank())
+
+biodiv_plot
+
+## Save biodiversity map
+ggsave(plot = biodiv_plot,
+       filename = paste0("C:\\Users\\KMC00\\OneDrive - CEFAS\\R_PROJECTS\\OneBenthicCertain\\OUTPUTS\\biodiv_plot.png"),
+       height = 200, width =200,units = "mm", dpi = 500,
+       device = "png",limitsize = FALSE,bg="white")#height = 65, width =180,
+#_______________________________________________________________________________
+#### RISK ELEMENT MAPS: BIODIVERSITY CONFIDENCE ####
+
+## Load biodiversity spatraster
+#biodiv_model <- rast("C:/Users/KMC00/OneDrive - CEFAS/R_PROJECTS/OneBenthicHotSpots/OUTPUTS/Biodiversity_new.tif")
+biodiv_conf <- rast("C:/Users/kmc00/OneDrive - CEFAS/R_PROJECTS/OneBenthicHotSpots/OUTPUTS/Biodiversity_Cluster_Nov24/BiodiversityClusterConfidence_Nov24.tif")## ANNA'S FINAL OUTPUT
+
+## Make cluster a factor
+#values(biodiv_conf) <- as.factor(values(biodiv_conf))
+#unique(biodiv_conf)
+
+## Assemblage map
+biodiv_conf_plot <- ggplot() +
+  geom_spatraster(data = biodiv_conf) +
+  scale_fill_gradientn(colors= brewer.pal(n = 5, name = "Greys"),na.value="transparent",name="Confidence")+#Oranges
+  #scale_fill_manual(values = c("#37C331","#6FD326","#A8E21B","#E0F210","#F3F223","#E2E256","#D1D189","#C0C1BC","white"),name="Cluster", na.translate = F)+
+  geom_sf(data=countries, fill ="black",col ="black")+
+  coord_sf(xlim = c(-10, 9),ylim = c(49, 60))+
+   #scale_fill_manual(breaks = c('2','1','7','6','5','4','3','8'), values = c("#37C331", "#6FD326" ,"#A8E21B", "#E0F210", "#F3F223","#E2E256",  "#D1D189",  "#C0C1BC" ,"white"),na.value="transparent")+#
+  xlab("Longitude")+
+  ylab("Latitude")+
+  theme_bw(base_size = 24)+
+  theme(legend.background=element_blank(),legend.text = element_text(color="white",size= 20))+#make legend background transparent and text white
+  theme(legend.position=c(0.87,0.2))+#legend.position = "bottom","none"#legend.position = "bottom"
+theme(legend.title= element_text(color="white"))+
+  theme(plot.margin = unit(c(0,0.2,0,0.3), "cm"),legend.key.size = unit(0.5, "cm"))+#t, r, b, l
+   theme(
+    panel.background = element_blank(),
+    axis.title.y = element_blank(),
+    axis.title.x = element_blank(),
+    axis.text.x = element_text(color="white")
+   )+
+  #theme(legend.title = element_text( size=2), legend.text=element_text(size=10))+
+    theme(panel.grid.major = element_blank(),
+                     panel.grid.minor = element_blank())
+
+biodiv_conf_plot
+
+## Save biodiversity map
+ggsave(plot = biodiv_plot,
+       filename = paste0("C:\\Users\\KMC00\\OneDrive - CEFAS\\R_PROJECTS\\OneBenthicCertain\\OUTPUTS\\biodiv_plot.png"),
+       height = 200, width =200,units = "mm", dpi = 500,
+       device = "png",limitsize = FALSE,bg="white")#height = 65, width =180,
+#_______________________________________________________________________________
+### RISK ELEMENT MAPS: COMBINED BIODIVERSITY AND CONFIDENCE PLOTS ####
+
+## Stitch plots together
+biodiv_fig <- ggpubr::ggarrange(biodiv_plot,biodiv_conf_plot,nrow=1,labels = c("a)", "b)"),font.label=list(color="black",size=21,face='plain'),align="v")#font.label=list(color="black",size=6,face='plain'),align="v") ,labels = c("D0", "D1", "D2","N")
+library(ggpubr)
+## Add x and y labels
+biodiv_fig2 <- annotate_figure(
+  biodiv_fig, 
+  bottom = text_grob("          Longitude", 
+  color = "black", face = "plain", size = 21),#,
+  left = text_grob("Latitude", 
+  color = "black", face = "plain", size = 21,rot = 90)
+)
+
+## Save combined plot
+ggsave(plot = biodiv_fig2,
+       filename = paste0("C:\\Users\\KMC00\\OneDrive - CEFAS\\R_PROJECTS\\OneBenthicCertain\\OUTPUTS\\biodiv_fig2.png"),
+       height = 200, width =380, units = "mm", dpi = 500,
+       device = "png",limitsize = FALSE,bg="white")#width =285
+#_______________________________________________________________________________
+#### RISK ELEMENT MAPS: ASSEMBLAGE ####
+
+## Load assemblage raster
+#assemblage_model<- rast('C:/Users/kmc00/OneDrive - CEFAS/R_PROJECTS/OneBenthicCertain/OUTPUTS/StructureCluster.tif')
+assemblage_model<- rast('C:/Users/kmc00/OneDrive - CEFAS/R_PROJECTS/OneBenthicCertain/OUTPUTS/Vulnerability_Assemblage_Nov24/AssemblageMaxClass_Nov24.tif')#ANNA'S FINAL MODEL
+
+## Add attibute cluster group labels
+clus <- data.frame(id=1:11, cluster=c('A1','A2a','A2b','B1b','C1a','C1b','D1','D2a','D2b','D2c','D2d'))
+levels(assemblage_model) <- clus
+is.factor(assemblage_model)
+assemblage_model
+
+## Assemblage map
+assemblage_plot <- ggplot() +
+  geom_spatraster(data = assemblage_model) +
+  scale_fill_manual(values = c(  "#0000ee","#00ffff","#05aac1","#9a32cd","#00cd00","#9aff9a","#b40202","#ff0000","#ff8c00","#ffff00","#b4b404",'white'),name="cluster", labels=c("A1","A2a","A2b","B1b","C1a","C1b","D1","D2a","D2b","D2c","D2d"),na.value = "transparent", na.translate = FALSE)+
+  geom_sf(data=countries, fill ="black",col ="black")+
+  coord_sf(xlim = c(-10, 9),ylim = c(49, 60))+
+  xlab("Longitude")+
+  ylab("Latitude")+
+  theme_bw(base_size = 22)+
+  theme(legend.background=element_blank(),legend.text = element_text(color="white",size= 22))+#make legend background transparent and text white
+  theme(legend.position=c(0.87,0.22))+#legend.position = "bottom","none"#legend.position = "bottom"
+  theme(legend.title= element_blank())+
+  theme(plot.margin = unit(c(0,0,0,0), "cm"),legend.key.size = unit(0.65, "cm"))+#t, r, b, l
+  theme(
+    axis.title.y = element_text(colour = "white"),
+    #axis.title.x = element_text(color="white"),
+    axis.title.x = element_blank()
+  )+
+  theme(legend.title = element_text( size=2), legend.text=element_text(size=18))+
+    theme(panel.grid.major = element_blank(),
+                     panel.grid.minor = element_blank())
+
+assemblage_plot
+
+## Save assemblage map
+ggsave(plot = assemblage_plot,
+       filename = paste0("C:\\Users\\KMC00\\OneDrive - CEFAS\\R_PROJECTS\\OneBenthicCertain\\OUTPUTS\\assemblage_plot.png"),
+       height = 200, width =200,units = "mm", dpi = 500,
+       device = "png",limitsize = FALSE,bg="white")#height = 65, width =180,
+#_______________________________________________________________________________
+#### RISK ELEMENT MAPS: ASSEMBLAGE CONFIDENCE ####
+
+## Load assemblage raster
+#assemblage_model<- rast('C:/Users/kmc00/OneDrive - CEFAS/R_PROJECTS/OneBenthicCertain/OUTPUTS/StructureCluster.tif')
+assemblage_conf <- rast('C:/Users/kmc00/OneDrive - CEFAS/R_PROJECTS/OneBenthicCertain/OUTPUTS/Vulnerability_Assemblage_Nov24/AssemblageConfidence_Nov24.tif')#ANNA'S FINAL MODEL
+
+## Add attibute cluster group labels
+#clus <- data.frame(id=1:11, cluster=c('A1','A2a','A2b','B1b','C1a','C1b','D1','D2a','D2b','D2c','D2d'))
+#levels(assemblage_model) <- clus
+#is.factor(assemblage_model)
+#assemblage_model
+
+## Assemblage map
+assemblage_conf_plot <- ggplot() +
+  geom_spatraster(data = assemblage_conf) +
+  scale_fill_gradientn(colors= brewer.pal(n = 5, name = "Greys"),na.value="transparent",name="Confidence")+#Oranges
+  geom_sf(data=countries, fill ="black",col ="black")+
+  coord_sf(xlim = c(-10, 9),ylim = c(49, 60))+
+  xlab("Longitude")+
+  ylab("Latitude")+
+  theme_bw(base_size = 24)+
+  theme(legend.background=element_blank(),legend.text = element_text(color="white",size= 20))+#make legend background transparent and text white
+  theme(legend.position=c(0.87,0.2))+#legend.position = "bottom","none"#legend.position = "bottom"
+  #theme(legend.title= element_blank())+
+  theme(legend.title= element_text(color="white"))+
+  theme(plot.margin = unit(c(0,0.2,0,0.3), "cm"),legend.key.size = unit(0.5, "cm"))+#t, r, b, l
+  theme(
+    panel.background = element_blank(),
+    axis.title.y = element_blank(),
+    axis.title.x = element_text(color="white")
+   )+
+    theme(panel.grid.major = element_blank(),
+                     panel.grid.minor = element_blank())
+
+assemblage_conf_plot
+
+## Save assemblage map
+ggsave(plot = assemblage_conf_plot,
+       filename = paste0("C:\\Users\\KMC00\\OneDrive - CEFAS\\R_PROJECTS\\OneBenthicCertain\\OUTPUTS\\assemblage_conf_plot.png"),
+       height = 200, width =200,units = "mm", dpi = 500,
+       device = "png",limitsize = FALSE,bg="white")#height = 65, width =180,
+#_______________________________________________________________________________
+### RISK ELEMENT MAPS: COMBINED BIODIVERSITY AND CONFIDENCE PLOTS ####
+
+## Stitch plots together
+assemblage_fig <- ggpubr::ggarrange(assemblage_plot,assemblage_conf_plot,nrow=1,labels = c("a)", "b)"),font.label=list(color="black",size=21,face='plain'),align="v")#font.label=list(color="black",size=6,face='plain'),align="v") ,labels = c("D0", "D1", "D2","N")
+library(ggpubr)
+## Add x and y labels
+assemblage_fig2 <- annotate_figure(
+  assemblage_fig, 
+  bottom = text_grob("          Longitude", 
+  color = "black", face = "plain", size = 21),#,
+  left = text_grob("Latitude", 
+  color = "black", face = "plain", size = 21,rot = 90)
+)
+
+## Save combined plot
+ggsave(plot = assemblage_fig2,
+       filename = paste0("C:\\Users\\KMC00\\OneDrive - CEFAS\\R_PROJECTS\\OneBenthicCertain\\OUTPUTS\\assemblage_fig2.png"),
+       height = 200, width =380, units = "mm", dpi = 500,
+       device = "png",limitsize = FALSE,bg="white")#width =285
+
+#_______________________________________________________________________________
+#### RISK ELEMENT MAPS: COMBINED PLOT (FIGURE 3) ####
+library(egg)
+library(ggpubr)
+
+## Elements:
+s1 <- sensitivity_plot
+s2 <- sensitivity_conf_plot
+
+g1 <- biodiv_plot
+g2 <- biodiv_conf_plot
+
+a1 <- assemblage_plot#a1
+a2 <- assemblage_conf_plot#a2
+
+# Stitch plots together
+s_stitch <- egg::ggarrange(s1,s2, labels = c("", ""),nrow=1)
+g_stitch <- egg::ggarrange(g1,g2, labels = c("", ""),nrow=1)
+a_stitch <- egg::ggarrange(a1,a2, labels = c("", ""),nrow=1)
+
+figure2 <- ggpubr::ggarrange(s_stitch,g_stitch,a_stitch, labels = c("a)", "b)", "c)"),nrow=3,font.label=list(color="black",size=24,face='plain'),align="h",widths = c(0.81,0.81,1))
+
+fig3 <- annotate_figure(
+  figure2, 
+  bottom = text_grob("      Longitude", color = "black", face = "plain", size = 24),
+  left = text_grob("Latitude", color = "black", face = "plain", size = 24, rot = 90))
+
+## Save
+ggsave(plot = fig3,
+       filename = paste0("C:\\Users\\KMC00\\OneDrive - CEFAS\\R_PROJECTS\\OneBenthicCertain\\OUTPUTS\\Figure_3.png"),
+       height = 540, width =380, units = "mm", dpi = 500,
+       
+       device = "png",limitsize = FALSE,bg="white")#width =285
+
+#_______________________________________________________________________________
+### RISK ELEMENT MAPS: COMBINED SENSITIVITY AND ASSEMBLAGES CONFIDENCE PLOTS ####
+
+sens_assem_conf<- ggpubr::ggarrange(sensitivity_conf_plot,assemblage_conf_plot, labels = c("a)", "b)"),nrow=1,font.label=list(color="black",size=24,face='plain'),align="h",widths = c(1,1))
+
+fig_s2 <- annotate_figure(
+  sens_assem_conf, 
+  bottom = text_grob("      Longitude", color = "black", face = "plain", size = 24),
+  left = text_grob("Latitude", color = "black", face = "plain", size = 24, rot = 90))
+
+## Save
+ggsave(plot =fig_s2,
+       filename = paste0("C:\\Users\\KMC00\\OneDrive - CEFAS\\R_PROJECTS\\OneBenthicCertain\\OUTPUTS\\Figure_S2.png"),
+       height = 265, width =510, units = "mm", dpi = 500,
+       
+       device = "png",limitsize = FALSE,bg="white")#width =285
+#_______________________________________________________________________________
+#### RISK MAP: CONFIDENCE ####
+
+## Load assemblage raster
+#assemblage_model<- rast('C:/Users/kmc00/OneDrive - CEFAS/R_PROJECTS/OneBenthicCertain/OUTPUTS/StructureCluster.tif')
+risk_conf <- rast('C:/Users/kmc00/OneDrive - CEFAS/R_PROJECTS/OneBenthicPOSEIDON_Risk/R/www/risk_conf_norm2.tif')#ANNA'S FINAL MODEL
+
+## Add attibute cluster group labels
+#clus <- data.frame(id=1:11, cluster=c('A1','A2a','A2b','B1b','C1a','C1b','D1','D2a','D2b','D2c','D2d'))
+#levels(assemblage_model) <- clus
+#is.factor(assemblage_model)
+#assemblage_model
+
+## Assemblage map
+risk_conf_plot <- ggplot() +
+  geom_spatraster(data = risk_conf) +
+  scale_fill_gradientn(colors= brewer.pal(n = 5, name = "Greys"),na.value="transparent",name="Confidence")+#Oranges
+  geom_sf(data=countries, fill ="black",col ="black")+
+  coord_sf(xlim = c(-10, 9),ylim = c(49, 60))+
+  xlab("Longitude")+
+  ylab("Latitude")+
+  theme_bw(base_size = 24)+
+  theme(legend.background=element_blank(),legend.text = element_text(color="white",size= 20))+#make legend background transparent and text white
+  theme(legend.position=c(0.87,0.2))+#legend.position = "bottom","none"#legend.position = "bottom"
+  #theme(legend.title= element_blank())+
+  theme(legend.title= element_text(color="white"))+
+  theme(plot.margin = unit(c(0,0.2,0,0.3), "cm"),legend.key.size = unit(0.5, "cm"))+#t, r, b, l
+  theme(
+    panel.background = element_blank(),
+    axis.title.y = element_blank(),
+    axis.title.x = element_text(color="white"),
+    axis.text.y = element_text(color="white")
+      )+
+    theme(panel.grid.major = element_blank(),
+                     panel.grid.minor = element_blank())
+
+risk_conf_plot
+
+## Save assemblage map
+ggsave(plot = risk_conf_plot,
+       filename = paste0("C:\\Users\\KMC00\\OneDrive - CEFAS\\R_PROJECTS\\OneBenthicCertain\\OUTPUTS\\risk_conf_plot.png"),
+       height = 200, width =200,units = "mm", dpi = 500,
+       device = "png",limitsize = FALSE,bg="white")#height = 65, width =180,
+#_______________________________________________________________________________
+### RISK ELEMENT MAPS: COMBINED SENSITIVITY, ASSEMBLAGES AND RISK CONFIDENCE PLOTS ####
+
+#biodiv_sens_assem_risk_conf<- ggpubr::ggarrange(biodiv_conf_plot,sensitivity_conf_plot,assemblage_conf_plot,risk_conf_plot, labels = c("a)", "b)","c)","d)"),nrow=2,font.label=list(color="black",size=24,face='plain'),align="h",widths = c(1,1))
+
+class(biodiv_conf_plot)
+class(sensitivity_conf_plot)
+class(assemblage_conf_plot)
+class(risk_conf_plot)
+library(ggpubr)
+
+biodiv_sens_assem_risk_conf<- ggpubr::ggarrange(biodiv_conf_plot,sensitivity_conf_plot,assemblage_conf_plot,risk_conf_plot,ncol=2,nrow=2,labels = c("a)", "b)","c)","d)"),font.label = list(size = 24), label.x = 0.02,label.y = 1.05 )
+#########################
+
+top_row <- ggarrange(
+  biodiv_conf_plot, sensitivity_conf_plot,
+  ncol = 2,
+  labels = c("a)", "b)"),
+  font.label = list(size = 24),
+  label.y = 1.02  # slightly above for top row
+)
+
+bottom_row <- ggarrange(
+  assemblage_conf_plot, risk_conf_plot,
+  ncol = 2,
+  labels = c("c)", "d)"),
+  font.label = list(size = 24),
+  label.y = 1.05  # even higher to avoid y-axis overlap
+)
+
+biodiv_sens_assem_risk_conf <- ggarrange(
+  top_row, bottom_row,
+  ncol = 1, nrow = 2
+)
+
+
+
+######################
+
+
+risk_conf_plots <- annotate_figure(
+  biodiv_sens_assem_risk_conf, 
+  bottom = text_grob("      Longitude", color = "black", face = "plain", size = 24),
+  left = text_grob("Latitude", color = "black", face = "plain", size = 24, rot = 90))
+
+## Save
+ggsave(plot =risk_conf_plots,
+       filename = paste0("C:\\Users\\KMC00\\OneDrive - CEFAS\\R_PROJECTS\\OneBenthicCertain\\OUTPUTS\\Figure_S3.png"),
+       height = 420, width =420, units = "mm", dpi = 500,
+       
+       device = "png",limitsize = FALSE,bg="white")#width =285
+#_______________________________________________________________________________
+### RISK ELEMENT MAPS: SENSITIVITY, BIODIV, BIODV NUMERIC, ASSEM, ASSEM RARITY (FIGURE 3) ####
+library(ggpubr)
+library(egg)
+## Blank plot
+blank_plot <- ggplot() + 
+  geom_blank(data=countries) + 
+  coord_sf(xlim = c(-10, 9),ylim = c(49, 60))+
+  theme(plot.margin = unit(c(0,0,0,0), "cm"))+
+  theme_void()+
+  theme(
+    axis.title.y = element_text(colour = "white"),
+    axis.text.y = element_blank(),
+    axis.title.x = element_text(colour = "white")#,
+    #axis.text.x=element_text(colour = "white")
+  )
+
+
+
+
+# Add an arrow between the plots
+arrow_plot <- ggplot() +
+  geom_segment(aes(x=1, y=1, xend=3, yend=1), 
+               arrow = arrow(length = unit(0.5, "cm")), color = "black",lineend = "round", # See available arrow types in example above
+    linejoin = "round",
+    linewidth = 1.5) +
+  xlim(0, 3) + 
+  theme_void()+
+  theme(plot.margin = unit(c(0,0,0,0), "cm"))+
+  theme_void()+
+  theme(
+    axis.title.y = element_text(colour = "white"),
+    axis.text.y = element_blank(),
+    axis.title.x = element_text(colour = "white")#,
+    #axis.text.x=element_text(colour = "white")
+  )
+arrow_plot 
+
+white_arrow_plot <- ggplot() +
+  geom_segment(aes(x=1, y=1, xend=3, yend=1), 
+               arrow = arrow(length = unit(0.5, "cm")), color = "white") +
+  xlim(0, 3) + 
+  theme_void()+
+  theme(plot.margin = unit(c(0,0,0,0), "cm"))+
+  theme_void()+
+  theme(
+    axis.title.y = element_text(colour = "white"),
+    axis.text.y = element_blank(),
+    axis.title.x = element_text(colour = "white")#,
+    #axis.text.x=element_text(colour = "white")
+  )
+class(assemblage_plot)
+## Create each row
+col1 <- ggpubr::ggarrange(sensitivity_plot,biodiv_plot, assemblage_plot, labels = c("a)", "b)","c)"),nrow=3,font.label = list(size = 24,face = "plain"))#ggpubr
+col2 <-ggpubr::ggarrange(white_arrow_plot ,arrow_plot,arrow_plot, labels = c("", "",""),nrow=3,font.label = list(size = 24,face = "plain"))#ggpubr
+col3 <- ggpubr::ggarrange(blank_plot,biodiversity_numeric_plot,rarity_plot, labels = c("", "d)","e)"),nrow=3,font.label = list(size = 24,face = "plain"))#ggpubr blank_plot
+## Stitch rows together
+
+figure2 <- ggpubr::ggarrange(col1, col2, col3, ncol=3,font.label=list(color="black",size=22,face='plain'),align="h",widths = c(1,0.1,0.94), heights = c(1,0.94,1))#font.label=list(color="black",size=6,face='plain'),align="v") ,labels = c("D0", "D1", "D2","N")
+
+## Add x and y labels
+fig2 <- annotate_figure(
+  figure2, 
+  bottom = text_grob("          Longitude", 
+  color = "black", face = "plain", size = 22),#,
+  left = text_grob("Latitude", 
+  color = "black", face = "plain", size = 22,rot = 90)
+)
+
+## Save combined plot
+ggsave(plot = fig2,
+       filename = paste0("C:\\Users\\KMC00\\OneDrive - CEFAS\\R_PROJECTS\\OneBenthicCertain\\OUTPUTS\\Figure_3.png"),
+       height = 600, width =480, units = "mm", dpi = 500,
+       device = "png",limitsize = TRUE,bg="white")#width =285
+
+
+#_______________________________________________________________________________
+#### COMBINED RISK ####
+#_______________________________________________________________________________
+#### COMBINED RISK: RESCALE FUNCTION ####
+## Normalise sensitivity layer
+#https://gis.stackexchange.com/questions/437520/normalize-raster-in-r
+# Function to be applied on the raster values; return: SpatRaster object
+rescale01 <- function(x) {
+  val <- values(x)
+  values(x) <- (val - min(val, na.rm = TRUE)) / (max(val, na.rm = TRUE) - min(val, na.rm = TRUE))
+  x
+}
+#_______________________________________________________________________________
+#### COMBINED RISK: LOAD RISK ELEMENT MODELS ####
+
+## Load rasters
+sensitivity <- rast('C:/Users/KMC00/OneDrive - CEFAS/R_PROJECTS/OneBenthicCertain/OUTPUTS/Vulnerability _Sensitivity/sensitivity_Mean_SQ.tif')# ANNA's FINAL MODEL
+biodiv <- rast("C:/Users/kmc00/OneDrive - CEFAS/R_PROJECTS/OneBenthicHotSpots/OUTPUTS/Biodiversity_Cluster_Nov24/BiodiversityClusterMaxClass_Nov24.tif")## ANNA'S FINAL OUTPUT
+assemblage<- rast('C:/Users/kmc00/OneDrive - CEFAS/R_PROJECTS/OneBenthicCertain/OUTPUTS/Vulnerability_Assemblage_Nov24/AssemblageMaxClass_Nov24.tif')#ANNA'S FINAL MODEL
+
+## Create copies of layers
+sensitivity_cont <- sensitivity
+biodiv_cont <- biodiv
+assemblage_cont<- assemblage
+
+plot(sensitivity_cont)
+#_______________________________________________________________________________
+#### RISK ELEMENT MAPS: SENSITIVITY ####
+library(viridis)
+
+
+sensitivity_cont_plot <- ggplot() +
+  geom_spatraster(data = sensitivity_cont) +
+  #scale_fill_viridis(na.value="transparent")+
+  scale_fill_gradientn(colors= matlab.like(50),na.value="transparent")+
+  #scale_fill_manual(values = c(  "#0000ee","#00ffff","#05aac1","#9a32cd","#00cd00","#9aff9a","#b40202","#ff0000","#ff8c00","#ffff00","#b4b404",'white'),name="cluster", labels=c("A1","A2a","A2b","B1b","C1a","C1b","D1","D2a","D2b","D2c","D2d"),na.value = "transparent", na.translate = FALSE)+
+  geom_sf(data=countries, fill ="black",col ="black")+
+  coord_sf(xlim = c(-10, 9),ylim = c(49, 60))+
+  xlab("Longitude")+
+  ylab("Latitude")+
+  theme_bw(base_size = 18)+
+  #annotate("text",x=c(-9.52),y=c(60.4),label=c("Combined Risk"),color="#36454F", size=5)+#3
+  theme(legend.background=element_blank(),legend.text = element_text(color="white",size= 18))+#make legend background transparent and text white
+  theme(legend.position=c(0.9,0.20))+#legend.position = "bottom","none"#legend.position = "bottom"
+  theme(legend.title= element_blank())+
+  theme(plot.margin = unit(c(0,0,0,0), "cm"),legend.key.size = unit(1.0, "cm"))+#t, r, b, l
+  theme(
+    axis.title.y = element_text(colour = "white"),
+    axis.title.x = element_text(colour = "white")
+  )+
+  #theme(legend.title = element_text( size=2), legend.text=element_text(size=20))+
+    theme(panel.grid.major = element_blank(),
+                     panel.grid.minor = element_blank())
+
+## Save assemblage map
+ggsave(plot = sensitivity_cont_plot,
+       filename = paste0("C:\\Users\\KMC00\\OneDrive - CEFAS\\R_PROJECTS\\OneBenthicCertain\\OUTPUTS\\sensitivity_cont_plot.png"),
+       height = 200, width =200,units = "mm", dpi = 500,
+       device = "png",limitsize = FALSE,bg="white")#height = 65, width =180,
+#_______________________________________________________________________________
+#_______________________________________________________________________________
+#### COMBINED RISK: RESCALE SENSITIVITY ####
+# Rescale values of SpatRaster object with nlyr = 1
+sensitivity_cont_scaled <- rescale01(sensitivity_cont)
+plot(sensitivity_cont_scaled)
+
+# Save as .tiff
+writeRaster(sensitivity_cont_scaled,'C:\\Users\\KMC00\\OneDrive - CEFAS\\R_PROJECTS\\OneBenthicCertain\\OUTPUTS\\sensitivity_cont_scaled.tif',overwrite=TRUE)#,format = "GTiff"
+#_______________________________________________________________________________
+#### COMBINED RISK: ASSEMBLAGE CLASS AREA (TABLE 2) ####
+
+## Load packages
+library(DT)
+library(dplyr)
+library(knitr)
+library(kableExtra)
+library(scales)
+library(kableExtra)
+library(knitr)
+library(kableExtra)
+library(magick)
+library(webshot2)
+library(magick)
+
+## Identify unique values
+unique_values <- unique(values(assemblage_cont, na.rm=TRUE))#
+unique_values
+
+## Initialize a data frame to store results
+assem_area_df <- data.frame(value = unique_values, area = NA)
+
+# Calculate the area for each unique value
+for (i in 1:length(unique_values)) {
+  value <- unique_values[i]
+  mask <- assemblage_cont == value
+  assem_area_df$area[i] <- sum(cellSize(mask, unit="km")[values(mask, na.rm=TRUE)])
+}
+
+# Print the results
+print(assem_area_df)
+
+## Calculate the total 'area' and 'percentage'
+totals2 <- assem_area_df %>%
+  #mutate(percentage = area/sum(area)*100)%>% 
+  select_if(is.numeric) %>%
+  summarize(across(everything(), sum))
+totals2
+
+## Add col for total area
+assem_area_df$tot_area <- 903466.3
+assem_area_df
+
+## Biotope Score is the area of seabed NOT occupied by the metric
+assem_area_df$score <-assem_area_df$tot_area - assem_area_df$area
+
+
+## Table 2 (DT)
+
+datatable(assem_area_df)
+#colnames(assem_area_df) <- c("Class","Class Area (CA) km2","Total Area (TA) km2","Score (CA-TA)")
+
+str(assem_area_df)
+
+## Create table in Viewer
+assem_area_df%>%mutate(AssemblageMaxClass_Nov24 = case_when(
+    AssemblageMaxClass_Nov24 == 1~'A1' , 
+    AssemblageMaxClass_Nov24 == 2~'A2a',
+    AssemblageMaxClass_Nov24 == 3~'A2b',
+    AssemblageMaxClass_Nov24 == 4~'B1b',
+    AssemblageMaxClass_Nov24 == 5~'C1a',
+    AssemblageMaxClass_Nov24 == 6~'C1b',
+    AssemblageMaxClass_Nov24 == 7~'D1',
+    AssemblageMaxClass_Nov24 == 8~'D2a',
+    AssemblageMaxClass_Nov24 == 9~'D2b',
+    AssemblageMaxClass_Nov24 == 10~'D2c',
+    AssemblageMaxClass_Nov24 == 11~'D2d'))%>%
+  arrange(desc(score))%>%# order by score
+rename('Group'='AssemblageMaxClass_Nov24', 'Area km2'='area','Total km2'='tot_area', 'Score'='score')%>%# Update column names
+datatable(rownames = FALSE,options = list(
+          dom = 't',  # Only show the table
+          paging = FALSE,  # Disable pagination
+          searching = FALSE))%>%
+  formatRound(c('Area km2','Total km2', 'Score'), 0)%>%
+  formatStyle(
+          columns = 1,  # Column to style
+          fontWeight = 'bold',
+          color = 'Black'# Style to apply
+        )
+  
+## Table 2 (kable)
+assemblage_area_df <- assem_area_df%>%mutate(AssemblageMaxClass_Nov24 = case_when(
+    AssemblageMaxClass_Nov24 == 1~'A1' , 
+    AssemblageMaxClass_Nov24 == 2~'A2a',
+    AssemblageMaxClass_Nov24 == 3~'A2b',
+    AssemblageMaxClass_Nov24 == 4~'B1b',
+    AssemblageMaxClass_Nov24 == 5~'C1a',
+    AssemblageMaxClass_Nov24 == 6~'C1b',
+    AssemblageMaxClass_Nov24 == 7~'D1',
+    AssemblageMaxClass_Nov24 == 8~'D2a',
+    AssemblageMaxClass_Nov24 == 9~'D2b',
+    AssemblageMaxClass_Nov24 == 10~'D2c',
+    AssemblageMaxClass_Nov24 == 11~'D2d'))%>%
+mutate(area = round(area,1))%>%
+  mutate(tot_area = round(tot_area,1))%>%
+  arrange(desc(score))%>%# order by score
+    mutate(score = round(score,1))%>%
+rename('Group'='AssemblageMaxClass_Nov24', 'Area (km<sup>2</sup>)'='area','Total (km<sup>2</sup>)'='tot_area', 'Inverse Area (km<sup>2</sup>)'='score')%>%# Update column names
+
+  dplyr::select(-c('Total (km<sup>2</sup>)'))
+############
+str(assemblage_area_df)
+
+#assemblage_area_df$'Inverse Area (km<sup>2</sup>)' <- as.character(assemblage_area_df$'Inverse Area (km<sup>2</sup>)' )
+assemblage_area_df <- assemblage_area_df %>%
+  mutate(Percentage = assemblage_area_df$'Area (km<sup>2</sup>)' / sum(assemblage_area_df$'Area (km<sup>2</sup>)') * 100)%>%
+  #bind_rows(summarise(., across(where(is.numeric), sum), across(where(is.character), ~ "Total")))
+  mutate('%' = round(Percentage, 1))%>%
+bind_rows(summarise(., Group = "Total", 'Area (km<sup>2</sup>)' = sum(assemblage_area_df$'Area (km<sup>2</sup>)')))
+
+assemblage_area_df
+
+## Update column order
+assemblage_area_df <- assemblage_area_df[,c(1,2,5,3)]
+
+############
+# Format the numeric columns with commas
+assemblage_area_df$'Area (km<sup>2</sup>)' <- comma(assemblage_area_df$'Area (km<sup>2</sup>)')
+#assemblage_area_df$'Total (km<sup>2</sup>)' <- comma(assemblage_area_df$'Total (km<sup>2</sup>)')
+assemblage_area_df$'Inverse Area (km<sup>2</sup>)' <- comma(assemblage_area_df$'Inverse Area (km<sup>2</sup>)')
+
+## Replace NA values with blank spaces
+assemblage_area_df[is.na(assemblage_area_df)] <- ""
+
+## Add colouring to Group column in kable output (optional)
+assemblage_area_df$Group = cell_spec(
+  assemblage_area_df$Group, #color = "black", align = "c", angle = 45, 
+  background = factor(assemblage_area_df$Group, c("A1","A2a","A2b","B1b","C1a","C1b","D1","D2a","D2b","D2c","D2d","Total"), c(
+ "#0000ee","#00ffff","#05aac1","#9a32cd","#00cd00","#9aff9a","#b40202","#ff0000","#ff8c00","#ffff00","#b4b404","")))
+
+
+# Define the path to save the HTML file
+html_file <- "C:/Users/kmc00/OneDrive - CEFAS/R_PROJECTS/OneBenthicCertain/OUTPUTS/Table_faunal_assemblage_area_scores.html"
+
+## Save table
+kable(assemblage_area_df, escape=FALSE,align = c("l", "c","c"),format = "html",caption = "") %>%#Table 3. Spatial extent scores (Inverse Area km2) for faunal assemblage clusters.
+      column_spec (1,color = "white",width = "8em", bold = F)%>%
+  column_spec(2, width = "15em")%>%  # Adjust the width as needed 
+  column_spec(3, width = "15em")%>%  # Adjust the width as needed 
+   column_spec(4, width = "15em")%>%  # Adjust the width as needed 
+      kable_styling(full_width = FALSE)%>%#"striped","hover",,bootstrap_options = c( "condensed")
+  #add_header_above(c("Table 3. Spatial extent scores for faunal assemblage clusters." =3))%>%
+   row_spec(nrow(assemblage_area_df), color = "black",bold = TRUE)%>%
+   save_kable(file = html_file)
+
+# Capture the screenshot of the HTML file
+png_file <- "C:/Users/kmc00/OneDrive - CEFAS/R_PROJECTS/OneBenthicCertain/OUTPUTS/Table_faunal_assemblage_area_scores.png"
+webshot(html_file, file = png_file)
+
+# Read the PNG file
+img <- image_read("C:/Users/kmc00/OneDrive - CEFAS/R_PROJECTS/OneBenthicCertain/OUTPUTS/Table_faunal_assemblage_area_scores.png")
+
+# Trim the white space
+img_trimmed <- image_trim(img)
+
+# Save the trimmed image
+image_write(img_trimmed, "C:/Users/kmc00/OneDrive - CEFAS/R_PROJECTS/OneBenthicCertain/OUTPUTS/Table_faunal_assemblage_area_scores.png")
+
+#_______________________________________________________________________________
+#### COMBINED RISK: MANIPULATION OF ASSEMBLAGE LAYER (AREA NOT OCCUPIED BY CLASS) ####
+
+## Substitute cluster classes for Area Score (see Table 2)
+assemblage_cont_subst1 <- subst(assemblage_cont, from = 1, to = 901892.8)
+assemblage_cont_subst2 <- subst(assemblage_cont_subst1, from = 2, to = 902574.3)
+assemblage_cont_subst3 <- subst(assemblage_cont_subst2, from = 3, to = 892190.2)
+assemblage_cont_subst4 <- subst(assemblage_cont_subst3, from = 4, to = 886010.3)
+assemblage_cont_subst5 <- subst(assemblage_cont_subst4, from = 5, to = 876873.5)
+assemblage_cont_subst6 <- subst(assemblage_cont_subst5, from = 6, to = 893827.9)
+assemblage_cont_subst7 <- subst(assemblage_cont_subst6, from = 7, to = 816636.7)
+assemblage_cont_subst8 <- subst(assemblage_cont_subst7, from = 8, to = 741526.0)
+assemblage_cont_subst9 <- subst(assemblage_cont_subst8, from = 9, to = 579849.7)
+assemblage_cont_subst10 <- subst(assemblage_cont_subst9, from = 10, to = 754748.1)
+assemblage_cont_subst11 <- subst(assemblage_cont_subst10, from = 11, to = 788533.5)
+plot(assemblage_cont_subst11)
+
+# Save as .tiff
+writeRaster(assemblage_cont_subst11,'C:\\Users\\KMC00\\OneDrive - CEFAS\\R_PROJECTS\\OneBenthicCertain\\OUTPUTS\\assemblage_rarity.tif',overwrite=TRUE)#,format =
+#_______________________________________________________________________________
+#### RISK ELEMENT MAPS: ASSEMBLAGE RARITY NUMERIC ####
+library(viridis)
+
+
+rarity_plot <- ggplot() +
+  geom_spatraster(data = assemblage_cont_subst11) +
+  scale_fill_viridis(na.value="transparent")+
+  #scale_fill_gradientn(colors= matlab.like(50),na.value="transparent")+
+  #scale_fill_manual(values = c(  "#0000ee","#00ffff","#05aac1","#9a32cd","#00cd00","#9aff9a","#b40202","#ff0000","#ff8c00","#ffff00","#b4b404",'white'),name="cluster", labels=c("A1","A2a","A2b","B1b","C1a","C1b","D1","D2a","D2b","D2c","D2d"),na.value = "transparent", na.translate = FALSE)+
+  geom_sf(data=countries, fill ="black",col ="black")+
+  coord_sf(xlim = c(-10, 9),ylim = c(49, 60))+
+  xlab("Longitude")+
+  ylab("Latitude")+
+  theme_bw(base_size = 22)+
+  #annotate("text",x=c(-9.52),y=c(60.4),label=c("Combined Risk"),color="#36454F", size=5)+#3
+  theme(legend.background=element_blank(),legend.text = element_text(color="white",size= 22))+#make legend background transparent and text white
+  theme(legend.position=c(0.9,0.20))+#legend.position = "bottom","none"#legend.position = "bottom"
+  #theme(legend.title= element_blank())+
+  theme(legend.title= element_text(colour = "white"))+
+  theme(plot.margin = unit(c(0,0,0,0), "cm"),legend.key.size = unit(0.8, "cm"))+#t, r, b, l
+  theme(
+    axis.title.y = element_text(colour = "white"),
+    axis.text.y = element_blank(),
+    axis.title.x = element_blank()#,
+    #axis.text.x=element_text(colour = "white")
+  )+
+  #theme(legend.title = element_text( size=2), legend.text=element_text(size=20))+
+    theme(panel.grid.major = element_blank(),
+                     panel.grid.minor = element_blank())+
+  labs(fill = expression(km^2))
+rarity_plot
+
+## Save assemblage map
+ggsave(plot = rarity_plot,
+       filename = paste0("C:\\Users\\KMC00\\OneDrive - CEFAS\\R_PROJECTS\\OneBenthicCertain\\OUTPUTS\\rarity_plot.png"),
+       height = 200, width =200,units = "mm", dpi = 500,
+       device = "png",limitsize = FALSE,bg="white")#height = 65, width =180,
+#_______________________________________________________________________________
+#_______________________________________________________________________________
+#### COMBINED RISK: RESCALE ASSEMBLAGE AREA SCORE LAYER ####
+# Rescale values of SpatRaster object with nlyr = 1
+assemblage_cont_scaled <- rescale01(assemblage_cont_subst11)
+plot(assemblage_cont_scaled)
+
+# Save as .tiff
+writeRaster(assemblage_cont_scaled,'C:\\Users\\KMC00\\OneDrive - CEFAS\\R_PROJECTS\\OneBenthicCertain\\OUTPUTS\\assemblage_cont_scaled.tif',overwrite=TRUE)#,format = "GTiff"
+#_______________________________________________________________________________
+#### COMBINED RISK: MANIPULATION OF BIODIVERSITY LAYER (CHANGE CLASS TO CLUSTER CENTRE SUM) ####
+
+## Identify unique values
+unique_values <- unique(values(biodiv_cont, na.rm=TRUE))
+unique_values
+#######################################
+biodiv_centre_sums <- data.frame(unique_values)
+biodiv_centre_sums
+
+
+colnames(biodiv_centre_sums)[1] <- 'Cluster'
+
+# Order by the 'mpg' column in ascending order
+biodiv_centre_sums$Cluster <- factor(biodiv_centre_sums$Cluster,levels=c(1,2,6,7,5,3,4,8))
+
+## Order by cluster (highest to lowest biodiversity)
+biodiv_centre_sums <- biodiv_centre_sums%>% arrange(Cluster)
+
+## Add in biodiversity values (From hotspots paper - see Table 6)
+biodiv_centre_sums$Biodiversity <- c(4.15,4.07,3.93,3.82,3.18,2.98,2.95,2.17)
+str(biodiv_centre_sums$Cluster)
+## Add colouring to Group column in kable output (optional)
+biodiv_centre_sums$Cluster = cell_spec(
+  biodiv_centre_sums$Cluster, #color = "black", align = "c", angle = 45, 
+  background = factor(biodiv_centre_sums$Cluster, c("1","2","6","7","5","3","4","8"), c(
+"#37C331", "#6FD326" ,"#A8E21B", "#E0F210", "#F3F223","#E2E256",  "#D1D189",  "#C0C1BC")))
+# Define the path to save the HTML file
+html_file <- "C:/Users/kmc00/OneDrive - CEFAS/R_PROJECTS/OneBenthicCertain/OUTPUTS/Table_biodiversity_values.html"
+
+## Save table
+kable(biodiv_centre_sums, escape=FALSE,format = "html",align = c("l", "c"),caption = "") %>%#Table 2. Biodiversity values of each macrofaunal biodiversity cluster group (Cooper et al., submitted), derived from the ranked sum of cluster centres.
+      column_spec (1,color = "white", bold = F,width = "12em")%>%
+      column_spec(2, width = "12em")%>%  # Adjust the width as needed 
+      kable_styling(full_width = FALSE)%>% #"striped", "condensed ,bootstrap_options = c("hover")
+  #add_header_above(c( "Table 2. Biodiversity by cluster group. Values based on summed cluster centres (from Cooper et al. (2025)." = 2))%>%
+
+  save_kable(file = html_file)
+
+# Capture the screenshot of the HTML file
+png_file <- "C:/Users/kmc00/OneDrive - CEFAS/R_PROJECTS/OneBenthicCertain/OUTPUTS/Table_biodiversity_values.png"
+webshot(html_file, file = png_file)
+
+# Read the PNG file
+img <- image_read("C:/Users/kmc00/OneDrive - CEFAS/R_PROJECTS/OneBenthicCertain/OUTPUTS/Table_biodiversity_values.png")
+
+# Trim the white space
+img_trimmed <- image_trim(img)
+
+# Save the trimmed image
+image_write(img_trimmed, "C:/Users/kmc00/OneDrive - CEFAS/R_PROJECTS/OneBenthicCertain/OUTPUTS/Table_biodiversity_values.png")
+######################################
+## Initialize a data frame to store results
+biodiv_area_df <- data.frame(value = unique_values, area = NA)
+
+# For example, replace all values of 3 with 7
+biodiv_cont_subst1 <- subst(biodiv_cont, from = 1, to = 4.15)
+biodiv_cont_subst2 <- subst(biodiv_cont_subst1, from = 2, to = 4.07)
+biodiv_cont_subst3 <- subst(biodiv_cont_subst2, from = 3, to = 2.98)
+biodiv_cont_subst4 <- subst(biodiv_cont_subst3, from = 4, to = 2.95)
+biodiv_cont_subst5 <- subst(biodiv_cont_subst4, from = 5, to = 3.18)
+biodiv_cont_subst6 <- subst(biodiv_cont_subst5, from = 6, to = 3.93)
+biodiv_cont_subst7 <- subst(biodiv_cont_subst6, from = 7, to = 3.82)
+biodiv_cont_subst8 <- subst(biodiv_cont_subst7, from = 8, to = 2.17)
+
+
+#_______________________________________________________________________________
+#### RISK ELEMENT MAPS: BIODIVERSITY NUMERIC ####
+library(viridis)
+
+
+biodiversity_numeric_plot <- ggplot() +
+  geom_spatraster(data = biodiv_cont_subst8) +
+  scale_fill_viridis(na.value="transparent")+
+  #scale_fill_gradientn(colors= matlab.like(50),na.value="transparent")+
+  #scale_fill_manual(values = c(  "#0000ee","#00ffff","#05aac1","#9a32cd","#00cd00","#9aff9a","#b40202","#ff0000","#ff8c00","#ffff00","#b4b404",'white'),name="cluster", labels=c("A1","A2a","A2b","B1b","C1a","C1b","D1","D2a","D2b","D2c","D2d"),na.value = "transparent", na.translate = FALSE)+
+  geom_sf(data=countries, fill ="black",col ="black")+
+  coord_sf(xlim = c(-10, 9),ylim = c(49, 60))+
+  xlab("Longitude")+
+  ylab("Latitude")+
+  theme_bw(base_size = 22)+
+  #annotate("text",x=c(-9.52),y=c(60.4),label=c("Combined Risk"),color="#36454F", size=5)+#3
+  theme(legend.background=element_blank(),legend.text = element_text(color="white",size= 22))+#make legend background transparent and text white
+  theme(legend.position=c(0.9,0.20))+#legend.position = "bottom","none"#legend.position = "bottom"
+  theme(legend.title= element_blank())+
+  theme(plot.margin = unit(c(0,0,0,0), "cm"),legend.key.size = unit(0.8, "cm"))+#t, r, b, l
+  theme(
+    axis.title.y = element_text(colour = "white"),
+    axis.text.y = element_blank(),
+     axis.title.x = element_blank(),
+    axis.text.x=element_text(colour = "white")
+  )+
+  #theme(legend.title = element_text( size=2), legend.text=element_text(size=20))+
+    theme(panel.grid.major = element_blank(),
+                     panel.grid.minor = element_blank())
+
+biodiversity_numeric_plot
+## Save assemblage map
+ggsave(plot = biodiversity_numeric_plot,
+       filename = paste0("C:\\Users\\KMC00\\OneDrive - CEFAS\\R_PROJECTS\\OneBenthicCertain\\OUTPUTS\\biodiversity_numeric_plot.png"),
+       height = 200, width =200,units = "mm", dpi = 500,
+       device = "png",limitsize = FALSE,bg="white")#height = 65, width =180,
+#_______________________________________________________________________________
+# Rescale values of SpatRaster object with nlyr = 1
+biodiv_cont_scaled <- rescale01(biodiv_cont_subst8)
+plot(biodiv_cont_scaled)
+
+# Save as .tiff
+writeRaster(biodiv_cont_scaled,'C:\\Users\\KMC00\\OneDrive - CEFAS\\R_PROJECTS\\OneBenthicCertain\\OUTPUTS\\biodiv_cont_scaled.tif',overwrite=TRUE)#,format = "GTiff"
+#_______________________________________________________________________________
+## Sum the three layers
+r_cont_risk <- sensitivity_cont_scaled + assemblage_cont_scaled + biodiv_cont_scaled
+plot(r_cont_risk)# Note zero and NAs are same
+
+# Rescale values of SpatRaster object with nlyr = 1
+r_cont_risk_scaled <- rescale01(r_cont_risk)
+
+# Check the current name of the layer
+print(names(r_cont_risk_scaled))
+
+# Change the name of the layer
+names(r_cont_risk_scaled) <- "combined_risk"
+
+# Verify the new name
+r_cont_risk_scaled
+
+## Save as .tiff
+writeRaster(r_cont_risk_scaled,'C:\\Users\\KMC00\\OneDrive - CEFAS\\R_PROJECTS\\OneBenthicCertain\\OUTPUTS\\cont_risk.tif',overwrite=TRUE)#,format = "GTiff"
+
+# Load biodiv norm raster
+r_cont_risk_scaled <- rast('C:\\Users\\KMC00\\OneDrive - CEFAS\\R_PROJECTS\\OneBenthicCertain\\OUTPUTS\\cont_risk.tif')
+
+
+library(viridis)
+## Assemblage map
+risk_plot <- ggplot() +
+  geom_spatraster(data = r_cont_risk_scaled) +
+  scale_fill_viridis(na.value="transparent")+
+  #scale_fill_gradientn(colors= matlab.like(50),na.value="transparent")+
+  #scale_fill_manual(values = c(  "#0000ee","#00ffff","#05aac1","#9a32cd","#00cd00","#9aff9a","#b40202","#ff0000","#ff8c00","#ffff00","#b4b404",'white'),name="cluster", labels=c("A1","A2a","A2b","B1b","C1a","C1b","D1","D2a","D2b","D2c","D2d"),na.value = "transparent", na.translate = FALSE)+
+  geom_sf(data=countries, fill ="black",col ="black")+
+  coord_sf(xlim = c(-10, 9),ylim = c(49, 60))+
+  xlab("Longitude")+
+  ylab("Latitude")+
+  theme_bw(base_size = 18)+
+  annotate("text",x=c(-9.52),y=c(60.4),label=c("Combined Risk"),color="#36454F", size=5)+#3
+  theme(legend.background=element_blank(),legend.text = element_text(color="white",size= 18))+#make legend background transparent and text white
+  theme(legend.position=c(0.9,0.15))+#legend.position = "bottom","none"#legend.position = "bottom"
+  theme(legend.title= element_blank())+
+  theme(plot.margin = unit(c(0,0,0,0), "cm"),legend.key.size = unit(1.0, "cm"))+#t, r, b, l
+  theme(
+    axis.title.y = element_text(colour = "white"),
+    axis.title.x = element_text(colour = "white")
+  )+
+  #theme(legend.title = element_text( size=2), legend.text=element_text(size=20))+
+    theme(panel.grid.major = element_blank(),
+                     panel.grid.minor = element_blank())
+
+risk_plot
+
+## Save assemblage map
+ggsave(plot = risk_plot,
+       filename = paste0("C:\\Users\\KMC00\\OneDrive - CEFAS\\R_PROJECTS\\OneBenthicCertain\\OUTPUTS\\cont_risk_plot.png"),
+       height = 200, width =200,units = "mm", dpi = 500,
+       device = "png",limitsize = FALSE,bg="white")#height = 65, width =180,
+
+#_______________________________________________________________________________
+#### GGPLOT BIODIV NORM ####
+
+# Load biodiv norm raster
+biodiv_norm <- rast('C:\\Users\\KMC00\\OneDrive - CEFAS\\R_PROJECTS\\OneBenthicCertain\\OUTPUTS\\biodiv_cont_scaled.tif')
+
+biodiv_norm_plot <- ggplot() +
+  geom_spatraster(data = biodiv_norm) +
+  scale_fill_viridis(na.value="transparent")+
+   geom_sf(data=countries, fill ="black",col ="black")+
+  coord_sf(xlim = c(-10, 9),ylim = c(49, 60))+
+  theme_bw(base_size = 18)+
+  annotate("text",x=c(-7.5),y=c(60.05),label=c("Biodiversity"),color="#36454F", size=5)+#3
+   theme(legend.background=element_blank(),legend.text = element_text(color="white",size= 10),legend.title = element_blank())+#make legend background transparent and text white
+  theme(plot.margin = unit(c(0,0.2,0,1), "cm"),legend.key.size = unit(0.45, "cm"))+#t, r, b, l
+  theme(legend.position=c(0.87,0.21))+#legend.position = "bottom","none"#legend.position = "bottom"
+  theme(
+    axis.title.x = element_text(colour = "white"),
+    axis.title.y = element_text(colour = "white"),
+    axis.text.x = element_blank()
+  )+
+  theme(panel.grid.major = element_blank(),
+                     panel.grid.minor = element_blank())
+#_______________________________________________________________________________
+#### GGPLOT SENSITIVITY NORM ####
+
+# Load biodiv norm raster
+sens_norm <- rast('C:\\Users\\KMC00\\OneDrive - CEFAS\\R_PROJECTS\\OneBenthicCertain\\OUTPUTS\\sensitivity_cont_scaled.tif')
+
+sens_norm_plot <- ggplot() +
+  geom_spatraster(data = sens_norm) +
+  scale_fill_viridis(na.value="transparent")+
+   geom_sf(data=countries, fill ="black",col ="black")+
+  coord_sf(xlim = c(-10, 9),ylim = c(49, 60))+
+  theme_bw(base_size = 18)+
+   annotate("text",x=c(-7.8),y=c(60.05),label=c("Sensitivity"),color="#36454F", size=5)+#3
+   theme(legend.background=element_blank(),legend.text = element_text(color="white",size= 10),legend.title = element_blank())+#make legend background transparent and text white
+  theme(plot.margin = unit(c(0,0.2,0,1), "cm"),legend.key.size = unit(0.45, "cm"))+#t, r, b, l
+  theme(legend.position=c(0.87,0.21))+#legend.position = "bottom","none"#legend.position = "bottom"
+  theme(
+    axis.title.x = element_text(colour = "white"),
+    axis.title.y = element_text(colour = "white"),
+    axis.text.x = element_blank()
+  )+
+  theme(panel.grid.major = element_blank(),
+                     panel.grid.minor = element_blank())
+#_______________________________________________________________________________
+#### GGPLOT ASSEMBLAGE NORM ####
+# Load biodiv norm raster
+assem_norm <- rast('C:\\Users\\KMC00\\OneDrive - CEFAS\\R_PROJECTS\\OneBenthicCertain\\OUTPUTS\\assemblage_cont_scaled.tif')
+
+assem_norm_plot <- ggplot() +
+  geom_spatraster(data = assem_norm) +
+  scale_fill_viridis(na.value="transparent")+
+   geom_sf(data=countries, fill ="black",col ="black")+
+  coord_sf(xlim = c(-10, 9),ylim = c(49, 60))+
+  theme_bw(base_size = 18)+
+   annotate("text",x=c(-9),y=c(60.05),label=c("Rarity"),color="#36454F", size=5)+#3
+   theme(legend.background=element_blank(),legend.text = element_text(color="white",size= 10),legend.title = element_blank())+#make legend background transparent and text white
+  theme(plot.margin = unit(c(0,0.2,0,1), "cm"),legend.key.size = unit(0.45, "cm"))+#t, r, b, l
+  theme(legend.position=c(0.87,0.21))+#legend.position = "bottom","none"#legend.position = "bottom"
+  theme(panel.grid.major = element_blank(),
+                     panel.grid.minor = element_blank(),
+        axis.title.y = element_text(colour = "white"),
+        axis.title.x = element_text(colour = "white"))
+#_______________________________________________________________________________
+### COMBINED NORM PLOTS ####
+library(ggpubr)
+## Combined Risk Plot
+risk_plot2 <- ggpubr::ggarrange(risk_plot,   
+                             nrow=1, font.label=list(color="black",size=16,face='plain'),align="v")#labels = c("d)"),
+
+## Risk elements and combined risk plots
+figure4 <-ggarrange(
+ggpubr::ggarrange(sens_norm_plot,biodiv_norm_plot,assem_norm_plot ,nrow=3,font.label=list(color="black",size=18,face='plain'),align="v",heights = c(0.94,0.94, 1)),
+risk_plot2,
+nrow = 1, 
+widths = c(0.39,1),
+#labels = c("a)","b)")
+labels = c("","")
+)
+
+## Add Lat and Lon labels
+figure4_2 <- annotate_figure(
+figure4, 
+  bottom = text_grob("          Longitude", 
+  color = "black", face = "plain", size = 18),#,
+  left = text_grob("Latitude", 
+  color = "black", face = "plain", size = 18,rot = 90)
+)
+
+## Save as png
+ggsave(plot = figure4_2,
+       filename = paste0("C:\\Users\\KMC00\\OneDrive - CEFAS\\R_PROJECTS\\OneBenthicCertain\\OUTPUTS\\cont_risk_plot.png"),
+       height = 310, width =450, units = "mm", dpi = 500,
+       device = "png",limitsize = FALSE,bg="white")#width =285
+
+#_______________________________________________________________________________
+
+#### GRAPHICAL ABSTRACT PLOTS ####
+library(terra)
+library(viridis)
+library(easypackages)
+library(RColorBrewer)
+easypackages::packages("sf",
+                       "raster",
+                       "stars",
+                       "r5r",
+                       "geobr",
+                       "aopdata",
+                       "gtfs2gps",
+                       "ggplot2",
+                       "osmdata",
+                       "h3jsr",
+                       "viridisLite",
+                       "ggnewscale",
+                       "dplyr",
+                       "magrittr",
+                       prompt = FALSE
+)
+
+dem <- rast("C:/Users/kmc00/OneDrive - CEFAS/R_PROJECTS/OneBenthicCertain/OUTPUTS/assemblage_cont_scaled.tif")
+dem2 <- aggregate(dem, fact=7,fun = modal)
+dem3 <- st_as_stars(dem2)
+dem4 <- st_as_sf(dem3)
+plot(dem4)
+
+sens <- rast("C:/Users/kmc00/OneDrive - CEFAS/R_PROJECTS/OneBenthicCertain/OUTPUTS/sensitivity_cont_scaled.tif")
+sens2 <- aggregate(sens, fact=7,fun = modal)
+sens3 <- st_as_stars(sens2)
+sens4 <- st_as_sf(sens3)
+plot(sens4)
+
+## Biodiversity (normalised)
+biodiv <- rast("C:/Users/kmc00/OneDrive - CEFAS/R_PROJECTS/OneBenthicCertain/OUTPUTS/biodiv_cont_scaled.tif")
+biodiv2 <- aggregate(biodiv, fact=7,fun = modal)
+biodiv3 <- st_as_stars(biodiv2)
+biodiv4 <- st_as_sf(biodiv3)
+plot(biodiv4)
+
+## Assemblages (raw)
+assem_raw <- rast("C:/Users/kmc00/OneDrive - CEFAS/R_PROJECTS/OneBenthicCertain/OUTPUTS/StructureCluster.tif")
+assem_raw2 <- aggregate(assem_raw, fact=7,fun = modal)
+values(assem_raw2) <- as.factor(values(assem_raw2))## Make cluster a factor
+assem_raw3 <- st_as_stars(assem_raw2)
+assem_raw4 <- st_as_sf(assem_raw3)
+plot(assem_raw4)
+
+## Biodiversity (raw)
+abiodiv_raw <- rast("C:/Users/kmc00/OneDrive - CEFAS/R_PROJECTS/OneBenthicHotSpots/OUTPUTS/Biodiversity_Cluster_Nov24/BiodiversityClusterMaxClass_Nov24.tif")
+abiodiv_raw2 <- aggregate(abiodiv_raw, fact=7,fun = modal)
+values(abiodiv_raw2) <- as.factor(values(abiodiv_raw2))## Make cluster a factor
+abiodiv_raw3 <- st_as_stars(abiodiv_raw2)
+abiodiv_raw4 <- st_as_sf(abiodiv_raw3)
+plot(abiodiv_raw4)
+
+
+#_______________________________________________________________________________
+#### FUNCTIONS ####
+rotate_data <- function(data, x_add = 0, y_add = 0) {
+  
+  shear_matrix <- function(){ matrix(c(2, 1.2, 0, 1), 2, 2) }
+  
+  rotate_matrix <- function(x){ 
+    matrix(c(cos(x), sin(x), -sin(x), cos(x)), 2, 2) 
+  }
+  data %>% 
+    dplyr::mutate(
+      geometry = .$geometry * shear_matrix() * rotate_matrix(pi/20) + c(x_add, y_add)
+    )
+}
+
+rotate_data_geom <- function(data, x_add = 0, y_add = 0) {
+  shear_matrix <- function(){ matrix(c(2, 1.2, 0, 1), 2, 2) }
+  
+  rotate_matrix <- function(x) { 
+    matrix(c(cos(x), sin(x), -sin(x), cos(x)), 2, 2) 
+  }
+  data %>% 
+    dplyr::mutate(
+      geom = .$geom * shear_matrix() * rotate_matrix(pi/80) + c(x_add, y_add)
+    )
+}
+
+
+
+#_______________________________________________________________________________
+#### RISK ELEMENTS PLOT ####
+
+# annotate parameters
+x = 94
+color = 'gray40'
+p1 <-ggplot() +
+  
+  # terrain
+  geom_sf(data = dem4 %>% rotate_data(), aes(fill=AssemblageMaxClass_Nov24), color=NA, show.legend = FALSE) +
+  #scale_fill_distiller(palette = "YlOrRd", direction = 1) +
+  scale_fill_viridis(na.value="transparent")+
+  annotate("text", label='Rarity', x=x, y= 49, hjust = 0, color=color,size=8) #+
+  #labs(caption = "image by @UrbanDemog")
+
+p2 <- p1 +
+  new_scale_fill() + 
+  new_scale_color() +
+  #ggplot() +
+  geom_sf(data = sens4 %>% rotate_data(y_add = 10),aes(fill=sensitivity_Mean_SQ), color=NA, show.legend = FALSE) +
+  scale_fill_viridis(na.value="transparent")+
+  #scale_fill_distiller(palette = "RdYlGn", direction = 1)+ 
+  annotate("text", label='Sensitivity', x=x, y= 59, hjust = 0, color=color,size=8)+ 
+
+new_scale_fill() + 
+  new_scale_color() +
+  #ggplot() +
+  geom_sf(data = biodiv4 %>% rotate_data(y_add = 20),aes(fill=BiodiversityClusterMaxClass_Nov24), color=NA, show.legend = FALSE) +
+  scale_fill_viridis(na.value="transparent")+
+  #scale_fill_distiller(palette = "PuBu", direction = 1)+
+  annotate("text", label='Biodiversity', x=x, y= 69, hjust = 0, color=color,size=8)+
+  theme_void(
+    #plot.background=element_rect(fill = "black"),
+    #panel.background = element_rect(fill = 'black'),
+    #panel.grid.major = element_blank(),
+    #panel.grid.minor = element_blank(),
+    #panel.border = element_blank(),
+    #axis.text.x=element_blank(),
+    #axis.ticks.x=element_blank(),
+    #axis.text.y=element_blank(),
+    #axis.ticks.y=element_blank()
+    )+
+  scale_x_continuous(limits = c(43, 108))
+p2
+
+## Save Figure 1
+ggsave(plot = p2,
+       filename = paste0("C:\\Users\\KMC00\\OneDrive - CEFAS\\R_PROJECTS\\OneBenthicCertain\\OUTPUTS\\raster_stack_norm.png"),
+       width = 32,height = 18,units = "cm", pointsize = 48,
+       device = "png",limitsize = FALSE,bg="white")
+
+#_______________________________________________________________________________
+#### RISK LAYER ####
+
+risk <- rast("C:/Users/kmc00/OneDrive - CEFAS/R_PROJECTS/OneBenthicCertain/OUTPUTS/cont_risk.tif")
+risk2 <- aggregate(risk, fact=7,fun = modal)
+risk3 <- st_as_stars(risk2)
+risk4 <- st_as_sf(risk3)
+plot(risk4)
+
+p3 <-ggplot() +
+  
+  # terrain
+  #geom_sf(data = risk4 %>% rotate_data(), aes(fill=combined_risk), color=NA, show.legend = FALSE) +
+  geom_sf(data = risk4, aes(fill=combined_risk), color=NA, show.legend = FALSE) +
+  scale_fill_viridis(na.value="transparent")+
+  #annotate("text", label='Overall Risk', x=x, y= 46, hjust = 0, color=color,size=6)+ #+
+#labs(caption = "image by @UrbanDemog")
+  theme_void(
+    #plot.background=element_rect(fill = "black"),
+    #panel.background = element_rect(fill = 'black'),
+    #panel.grid.major = element_blank(),
+    #panel.grid.minor = element_blank(),
+    #panel.border = element_blank(),
+    #axis.text.x=element_blank(),
+    #axis.ticks.x=element_blank(),
+    #axis.text.y=element_blank(),
+    #axis.ticks.y=element_blank()
+  )#+
+  #scale_x_continuous(limits = c(42, 115))
+p3
+
+## Save Figure 1
+ggsave(plot = p3,
+       filename = paste0("C:\\Users\\KMC00\\OneDrive - CEFAS\\R_PROJECTS\\OneBenthicCertain\\OUTPUTS\\combined_risk.png"),
+       width = 41,height = 40,units = "cm", pointsize = 48,
+       device = "png",limitsize = FALSE,bg="white")
+#_______________________________________________________________________________
+#### 3 models ####
+
+# annotate parameters
+x = 94
+color = 'gray40'
+
+## Assemblages
+p1 <-ggplot() +
+  geom_sf(data = assem_raw4 %>% rotate_data(),aes(fill=StructureCluster), color=NA, show.legend = FALSE) +
+  scale_fill_manual(values = c(  "#0000ee","#00ffff","#05aac1","#9a32cd","#00cd00","#9aff9a","#b40202","#ff0000","#ff8c00","#ffff00","#b4b404",'white'),name="cluster", 
+                    labels=c("A1","A2a","A2b","B1b","C1a","C1b","D1","D2a","D2b","D2c","D2d"),na.value = "transparent", na.translate = FALSE)+
+  #scale_fill_viridis(na.value="transparent")+
+  #scale_fill_distiller(palette = "PuBu", direction = 1)+
+  annotate("text", label='Assemblages', x=x, y= 49, hjust = 0, color=color,size=8)
+ 
+  #ggplot() +
+ 
+
+
+p2 <- p1 +
+  
+  # Sensitivity
+  
+  new_scale_fill() + 
+  new_scale_color() +
+  #ggplot() +
+  geom_sf(data = sens4 %>% rotate_data(y_add = 10),aes(fill=sensitivity_Mean_SQ), color=NA, show.legend = FALSE) +
+  scale_fill_gradientn(colors= matlab.like(50),na.value="transparent")+
+  #scale_fill_viridis(na.value="transparent")+
+  #scale_fill_distiller(palette = "RdYlGn", direction = 1)+ 
+  annotate("text", label='Sensitivity', x=x, y= 59, hjust = 0, color=color,size=8)+ 
+  
+ 
+  
+  
+  
+  # Biodiversity
+  new_scale_fill() + 
+  new_scale_color() +
+  geom_sf(data = abiodiv_raw4 %>% rotate_data(y_add = 20), aes(fill=BiodiversityClusterMaxClass_Nov24), color=NA, show.legend = FALSE) +
+  scale_fill_manual(values = c("#37C331","#6FD326","#A8E21B","#E0F210","#F3F223","#E2E256","#D1D189","#C0C1BC","white"),name="Cluster", na.translate = F)+
+  #scale_fill_distiller(palette = "YlOrRd", direction = 1) +
+  #scale_fill_viridis(na.value="transparent")+
+  annotate("text", label='Biodiversity', x=x, y= 69, hjust = 0, color=color,size=8)+
+#labs(caption = "image by @UrbanDemog")
+  
+  theme_void(
+    #plot.background=element_rect(fill = "black"),
+    #panel.background = element_rect(fill = 'black'),
+    #panel.grid.major = element_blank(),
+    #panel.grid.minor = element_blank(),
+    #panel.border = element_blank(),
+    #axis.text.x=element_blank(),
+    #axis.ticks.x=element_blank(),
+    #axis.text.y=element_blank(),
+    #axis.ticks.y=element_blank()
+  )+
+  #scale_x_continuous(limits = c(42, 115))
+scale_x_continuous(limits = c(43, 108))
+p2
+
+## Save Figure 1
+ggsave(plot = p2,
+       filename = paste0("C:\\Users\\KMC00\\OneDrive - CEFAS\\R_PROJECTS\\OneBenthicCertain\\OUTPUTS\\raster_stack_modelsv2.png"),
+       width = 32,height = 18,units = "cm", pointsize = 48,
+       device = "png",limitsize = FALSE,bg="white")
+
+#_______________________________________________________________________________
+#### PERSPECTIVE VIEW OF SAMPLES ####
+class(hill_spdf)
+
+dem <- rast("C:/Users/kmc00/OneDrive - CEFAS/R_PROJECTS/OneBenthicCertain/OUTPUTS/assemblage_cont_scaled.tif")
+dem2 <- aggregate(dem, fact=7,fun = modal)
+dem3 <- st_as_stars(dem2)
+dem4 <- st_as_sf(dem3)
+plot(dem4)
+
+PSam3=ggplot()+ 
+  geom_raster(data = hill_spdf, aes(x = x, y = y, fill = value)) +
+  scale_fill_gradient(low = "black", high = "white") +
+  geom_raster(data = dem_spdf, aes(x = x, y = y, fill = value), alpha=0.7)+
+  scale_fill_gradientn(
+    colours = c("#051650","#02367b","#006ca5","#0496c7", "#04bade","#55e2e9"),
+    limits  = c(-3800,0),
+    values  = scales::rescale(c(-3800,-1000,-100,-50,-25,0), from = c(-3800,0)))+
+  geom_point(data = points2,aes(x = X, y = Y), fill="yellow",alpha = 0.7,colour="yellow",size=0.7)+
+  geom_sf(data=countries, fill ="white",col ="white")+ 
+  #geom_sf(data=ni_border, ,col ="grey",linewidth = 0.2)+ 
+  coord_sf(xlim = c(-10, 9),ylim = c(49, 60))+
+theme_void()+#legend.position = "none"
+#theme_void(
+    #plot.background=element_rect(fill = "black"),
+    #panel.background = element_rect(fill = 'black'),
+    #panel.grid.major = element_blank(),
+    #panel.grid.minor = element_blank(),
+    #panel.border = element_blank(),
+    #axis.text.x=element_blank(),
+    #axis.ticks.x=element_blank(),
+    #axis.text.y=element_blank(),
+    #axis.ticks.y=element_blank()
+ # )
+guides(fill = "none")
+## Save Figure 1
+ggsave(plot = PSam3,
+       filename = paste0("C:\\Users\\KMC00\\OneDrive - CEFAS\\R_PROJECTS\\OneBenthicCertain\\OUTPUTS\\sample_locations.png"),
+       width = 41,height = 40,units = "cm", pointsize = 48,
+       device = "png",limitsize = FALSE,bg="white")
