@@ -20,6 +20,7 @@ model, and associated confidence layer should be created using code from xxxxx.R
 'PART 4: RANDOM FOREST MOELLING (SENSITIVITY and ASSEMBLAGES)', with input data
 (i.e. point sample assemblages) generated in this file.
 
+The Biodiversity layer was created in a sperate study, with relevant .R files found here: 
 PART 3: RISK (risk.R) is used to develop the final Combined Risk layer,
 together with an associated confidence layer. Input data are raster files for 
 Sensitivity (see PART 1: SENSITIVITY;sensitivity.R), Biodiversity 
