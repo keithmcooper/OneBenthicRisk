@@ -1,4 +1,4 @@
-R sciprt for paper: Bolam, S.G., Cooper, K.M., and 
+R sciprts for paper: Bolam, S.G., Cooper, K.M., and 
 Downie, A-L. Developing an Ecological Risk-Based Approach to Facilitate
 Licensing Offshore Wind Development. Ecosphere.
 
@@ -9,7 +9,7 @@ PART 1: SENSITIVITY (VERSION 1.0. 2025; see sensitivity.R) is used to develop th
 Sensitivity layer. Whilst the code includes lines for generating a random forest
 Sensitivity model, this is intended only as a quick look see. The final 
 Sensitivity model, and associated confidence layer should be created using code
-from xxxxx.R 'PART 3: RANDOM FOREST MOELLING (SENSITIVITY and
+from xxxxx.R 'PART 4: RANDOM FOREST MOELLING (SENSITIVITY and
 ASSEMBLAGES)', using input data (i.e. point sample sensitivity scores) generated
 in this file.
 
@@ -20,9 +20,8 @@ model, and associated confidence layer should be created using code from xxxxx.R
 'PART 4: RANDOM FOREST MOELLING (SENSITIVITY and ASSEMBLAGES)', with input data
 (i.e. point sample assemblages) generated in this file.
 
-PART 2: RISK (risk.R) is used to develop the final Combined Risk layer,
-together with an associated confidence layer. 
-
-Input data are raster files for Sensitivity (see PART 1: SENSITIVITY;
-sensitivity.R), Biodiversity (see https://github.com/keithmcooper/OneBenthicBiodiversity),
-and Assemblage Rarity (see PART 2: ASSEMBLAGES; assemblages.R).
+PART 3: RISK (risk.R) is used to develop the final Combined Risk layer,
+together with an associated confidence layer. Input data are raster files for 
+Sensitivity (see PART 1: SENSITIVITY;sensitivity.R), Biodiversity 
+(see https://github.com/keithmcooper/OneBenthicBiodiversity), and Assemblage Rarity
+(see PART 2: ASSEMBLAGES; assemblages.R).
