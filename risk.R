@@ -21,7 +21,7 @@
 
 # Note than individual maps are formatted for use in paper figures (2, 4, 5, 6). 
 # As such, the ggplot code made need tweaking if other maps are plotted 
-# individually or in combination with others. 
+# individually or in combination with others.
 #_______________________________________________________________________________
 #### RISK ELEMENT MAPS ####
 
@@ -1365,4 +1365,5 @@ PSam3=ggplot()+
 ggsave(plot = PSam3,
        filename = paste0("C:\\Users\\KMC00\\OneDrive - CEFAS\\R_PROJECTS\\OneBenthicCertain\\OUTPUTS\\sample_locations.png"),
        width = 41,height = 40,units = "cm", pointsize = 48,
+
        device = "png",limitsize = FALSE,bg="white")
