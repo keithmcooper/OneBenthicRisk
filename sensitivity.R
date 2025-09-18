@@ -12,10 +12,10 @@
 # In this study we create a 'Combined Risk' layer based on 3 element layers for: 
 # 'Biodiversity', 'Sensitivity' and 'Assemblage Rarity'.
 
-# This script 'PART 1: SENSITIVITY (VERSION 1.0. 2025)' is used to develop the  
-# Sensitivity layer. Whilst the code includes lines for 
-# generating a random forest 'Sensitivity' model, this is intended only as a quick
-# look see. The final 'Sensitivity' model, and associated confidence layer should 
+# This script 'PART 1: SENSITIVITY (VERSION 1.0. 2025; see sensitivity.R)' is
+# used to develop the Sensitivity layer. Whilst the code includes lines for 
+# generating a random forest Sensitivity model, this is intended only as a quick
+# look see. The final Sensitivity model, and associated confidence layer should 
 # be created using code from xxxxx.R 'PART 3: RANDOM FOREST MOELLING (SENSITIVITY and
 # ASSEMBLAGES)', using input data (i.e. point sample sensitivity scores) generated
 # in this file.
@@ -454,3 +454,4 @@ plot(pr)
 
 ## Save as .tiff
 writeRaster(pr,'C:\\Users\\KMC00\\OneDrive - CEFAS\\R_PROJECTS\\OneBenthicCertain\\OUTPUTS\\sensitivity__quick_look.tif',overwrite=TRUE,format = "GTiff")
+
