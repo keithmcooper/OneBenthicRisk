@@ -13,10 +13,10 @@
 # Biodiversity, Sensitivity and Assemblage Rarity.
 
 # This script 'PART 2: ASSEMBLAGES (VERSION 3.0. 2025)' is used to develop the  
-# Assemblages layer. Whilst the code includes lines for 
-# generating a random forest Assemblages model, this is intended only as a quick
-# look see. The final Assemblages model, and associated confidence layer should 
-# be created using code from xxxxx.R 'PART 3: RANDOM FOREST MOELLING (SENSITIVITY and
+# Assemblages layer. Whilst the code includes lines for # generating a random 
+# forest Assemblages model, this is intended only as a quick # look see. The
+# final Assemblages model, and associated confidence layer should # be created 
+# using code from xxxxx.R 'PART 4: RANDOM FOREST MOELLING (SENSITIVITY and
 # ASSEMBLAGES)', with input data (i.e. point sample assemblages) generated
 # in this file.
 
@@ -27,7 +27,6 @@
 # Faunal data: https://rconnect.cefas.co.uk/onebenthic_api_1/__docs__/)
 # or using the OneBenthic Data Extraction tool: Grab/Core
 # (https://rconnect.cefas.co.uk/onebenthic_dataextractiongrabcore/)
-
 #_______________________________________________________________________________
 #### #### LOAD REQUIRED DATA ####
 
@@ -2096,4 +2095,5 @@ for (i in seq_len(n_frames)) {
 }
 
 ## make a movie using https://gifmaker.me/
+
 #____________________________________________________________________________________________________________________
