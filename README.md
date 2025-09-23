@@ -9,7 +9,7 @@ PART 1: SENSITIVITY (VERSION 1.0. 2025; see sensitivity.R) is used to develop th
 Sensitivity layer. Whilst the code includes lines for generating a random forest
 Sensitivity model, this is intended only as a quick look see. The final 
 Sensitivity model, and associated confidence layer should be created using code
-from xxxxx.R 'PART 4: RANDOM FOREST MOELLING (SENSITIVITY and
+from xxxxx.R 'PART 4: RANDOM FOREST MODELLING (SENSITIVITY and
 ASSEMBLAGES)', using input data (i.e. point sample sensitivity scores) generated
 in this file.
 
