@@ -888,73 +888,48 @@ ggsave(plot = figure4_2,
 library(terra)
 
 ## Load rasters
-sensitivity_mean <- rast("C:/Users/kmc00/OneDrive - CEFAS/POSIDEN/POSEIDON RASTERS FOR AGE UPLOAD/Risk paper/Sensitivity/Model/sensitivity_Mean_SQ.tif")   # predicted sensitivity (mean across runs)
+#sensitivity_mean <- rast("C:/Users/kmc00/OneDrive - CEFAS/POSIDEN/POSEIDON RASTERS FOR AGE UPLOAD/Risk paper/Sensitivity/Model/sensitivity_Mean_SQ.tif")   # predicted sensitivity (mean across runs)
 biodiv_conf <-  rast("C:/Users/kmc00/OneDrive - CEFAS/POSIDEN/POSEIDON RASTERS FOR AGE UPLOAD/Biodiversity paper/Bio (Combined Biodiversity)/Confidence/BiodiversityClusterConfidence_Aug25.tif")# coefficient of variation (CV)
 rarity_conf <- rast('C:/Users/kmc00/OneDrive - CEFAS/POSIDEN/POSEIDON RASTERS FOR AGE UPLOAD/Risk paper/Assemblage/Confidence/AssemblageConfidence_Nov24.tif')# biodiversity confidence (0–1)
 sensitivity_cv <- rast('C:/Users/kmc00/OneDrive - CEFAS/POSIDEN/POSEIDON RASTERS FOR AGE UPLOAD/Risk paper/Sensitivity/Confidence/sensitivity_CV_SQ.tif')# rarity confidence (0–1)
 
-# --- Step 1: Convert sensitivity CV -> standard deviation ---
-# True statistical SD: σ = CV × mean
-# This raster represents actual variability in the predicted sensitivity
-sensitivity_sd <- sensitivity_cv * sensitivity_mean
+# --- Step 1: Convert sensitivity CV -> Confidence ---
+# CV on a scale from 0 to 1 where 0 is high
+# This is the opposite for categorical models, so need to subtract CV values from 1 to ensure comparability
+sensitivity_conf <- 1 - sensitivity_cv
 
-# --- Step 2: Invert biodiversity and rarity confidence to uncertainty ---
-# Higher values = greater uncertainty
-# Already 0–1 scale; these are NOT true SDs, but treated as variance-like indices
-biodiv_unc <- 1 - biodiv_conf
-rarity_unc <- 1 - rarity_conf
+# --- Step 2: Combine confidence layers to get an avaerage
+risk_conf <- 
+  (sensitivity_conf +
+    biodiv_conf +
+    rarity_conf)/3
 
-# --- Step 3: Normalize all layers 0–1 for comparability ---
-normalize <- function(r) {
-  rmin <- as.numeric(global(r, "min", na.rm = TRUE))
-  rmax <- as.numeric(global(r, "max", na.rm = TRUE))
-  (r - rmin) / (rmax - rmin)
-}
-
-sensitivity_sd_norm <- normalize(sensitivity_sd)  # true SD, normalized
-biodiv_unc_norm     <- normalize(biodiv_unc)      # normalized for comparability
-rarity_unc_norm     <- normalize(rarity_unc)      # normalized for comparability
-
-# --- Step 4: Combine uncertainty layers using error propagation ---
-# Law of propagation of uncertainty (assuming independence, Ku 1966; Taylor 1997):
-# σ_risk = sqrt(σ_sensitivity^2 + U_biodiversity^2 + U_rarity^2)
-# σ_sensitivity = true SD
-# U_biodiversity & U_rarity = normalized uncertainty indices
-risk_uncertainty <- sqrt(
-  sensitivity_sd_norm^2 +
-    biodiv_unc_norm^2 +
-    rarity_unc_norm^2
-)
-
-# --- Step 5: Convert uncertainty to confidence ---
-# confidence = 1 - normalized uncertainty
-risk_confidence_norm <- 1 - normalize(risk_uncertainty)
-
-# --- Step 6: Optional classification into 5 confidence categories ---
-risk_confidence_class <- classify(
-  risk_confidence_norm,
+# --- Step 3: Optional classification into 5 confidence categories ---
+risk_conf_class <- classify(
+  risk_conf,
   rcl = matrix(c(
-    0.0, 0.2, 1,  # Very Low
-    0.2, 0.4, 2,  # Low
-    0.4, 0.6, 3,  # Medium
-    0.6, 0.8, 4,  # High
-    0.8, 1.0, 5   # Very High
+    0.0, 0.2, 1,  # Low 
+    0.2, 0.4, 2,  # Low - Moderate
+    0.4, 0.6, 3,  # Moderate
+    0.6, 0.8, 4,  # High - Moderate
+    0.8, 1.0, 5   # High
   ), ncol = 3, byrow = TRUE),
   include.lowest = TRUE
 )
 
-levels(risk_confidence_class) <- data.frame(
+levels(risk_conf_class) <- data.frame(
   ID = 1:5,
   Class = c("Low","Low - Moderate","Moderate", "High - Moderate", "High")
 )
 
+plot(risk_conf_class)
 # --- Step 7: Save outputs ---
-writeRaster(risk_confidence_norm, "C:/Users/kmc00/OneDrive - CEFAS/R_PROJECTS/OneBenthicPOSEIDON_Risk/R/www/risk_confidence_continuous.tif", overwrite = TRUE)
-writeRaster(risk_confidence_class, "C:/Users/kmc00/OneDrive - CEFAS/R_PROJECTS/OneBenthicPOSEIDON_Risk/R/www/risk_confidence_5class.tif", overwrite = TRUE)
+writeRaster(risk_conf, "C:/Users/kmc00/OneDrive - CEFAS/R_PROJECTS/OneBenthicPOSEIDON_Risk/R/www/risk_confidence_continuous.tif", overwrite = TRUE)
+writeRaster(risk_conf_class, "C:/Users/kmc00/OneDrive - CEFAS/R_PROJECTS/OneBenthicPOSEIDON_Risk/R/www/risk_confidence_5class.tif", overwrite = TRUE)
 
 ## Plot rasters
-plot(risk_confidence_norm)
-plot(risk_confidence_class)
+plot(risk_conf)
+plot(risk_conf_class)
 #_______________________________________________________________________________
 #### RISK: MAP (CONFIDENCE) ####
 
@@ -1367,3 +1342,4 @@ ggsave(plot = PSam3,
        width = 41,height = 40,units = "cm", pointsize = 48,
 
        device = "png",limitsize = FALSE,bg="white")
+
