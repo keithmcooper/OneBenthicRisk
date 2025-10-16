@@ -904,6 +904,11 @@ risk_conf <-
     biodiv_conf +
     rarity_conf)/3
 
+# Rename the layer
+names(risk_conf) <- "risk_confidence"
+varnames(risk_conf) <- "risk_confidence"
+risk_conf
+
 # --- Step 3: Optional classification into 5 confidence categories ---
 risk_conf_class <- classify(
   risk_conf,
@@ -1342,4 +1347,5 @@ ggsave(plot = PSam3,
        width = 41,height = 40,units = "cm", pointsize = 48,
 
        device = "png",limitsize = FALSE,bg="white")
+
 
