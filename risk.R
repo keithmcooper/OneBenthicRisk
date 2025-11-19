@@ -21,7 +21,7 @@
 
 # Note than individual maps are formatted for use in paper figures (2, 4, 5, 6). 
 # As such, the ggplot code made need tweaking if other maps are plotted 
-# individually or in combination with others.
+# individually or in combination with others. 
 #_______________________________________________________________________________
 #### RISK ELEMENT MAPS ####
 
@@ -877,9 +877,9 @@ figure4_2 <- annotate_figure(
 
 ## Save as png
 ggsave(plot = figure4_2,
-       filename = paste0("C:\\Users\\KMC00\\OneDrive - CEFAS\\R_PROJECTS\\OneBenthicCertain\\OUTPUTS\\Figure_5.png"),
-       height = 310, width =450, units = "mm", dpi = 500,
-       device = "png",limitsize = FALSE,bg="white")#width =285
+       filename = paste0("C:\\Users\\KMC00\\OneDrive - CEFAS\\R_PROJECTS\\OneBenthicCertain\\OUTPUTS\\Figure_5.tif"),
+       height = 310, width =450, units = "mm", dpi = 600,
+       device = "tiff",limitsize = FALSE,bg="white")#width =285
 
 #_______________________________________________________________________________
 #### RISK: CONFIDENCE ####
@@ -903,11 +903,6 @@ risk_conf <-
   (sensitivity_conf +
     biodiv_conf +
     rarity_conf)/3
-
-# Rename the layer
-names(risk_conf) <- "risk_confidence"
-varnames(risk_conf) <- "risk_confidence"
-risk_conf
 
 # --- Step 3: Optional classification into 5 confidence categories ---
 risk_conf_class <- classify(
@@ -1044,9 +1039,9 @@ figure4_conf2 <- annotate_figure(
 
 ## Save as png
 ggsave(plot = figure4_conf2,
-       filename = paste0("C:\\Users\\KMC00\\OneDrive - CEFAS\\R_PROJECTS\\OneBenthicCertain\\OUTPUTS\\Figure_6.png"),
-       height = 310, width =450, units = "mm", dpi = 500,
-       device = "png",limitsize = FALSE,bg="white")#width =285
+       filename = paste0("C:\\Users\\KMC00\\OneDrive - CEFAS\\R_PROJECTS\\OneBenthicCertain\\OUTPUTS\\Figure_6.tif"),
+       height = 310, width =450, units = "mm", dpi = 600,
+       device = "tiff",limitsize = FALSE,bg="white")#width =285
 #_______________________________________________________________________________
 ### RISK ELEMENTS: MAP (MODELS AND NUMERIC DERIVATIVES; FIGURE 4) ####
 
@@ -1119,11 +1114,11 @@ fig2 <- annotate_figure(
 
 ## Save combined plot
 ggsave(plot = fig2,
-       filename = paste0("C:\\Users\\KMC00\\OneDrive - CEFAS\\R_PROJECTS\\OneBenthicCertain\\OUTPUTS\\Figure_4.png"),
-       height = 600, width =480, units = "mm", dpi = 500,
-       device = "png",limitsize = TRUE,bg="white")#width =285
+       filename = paste0("C:\\Users\\KMC00\\OneDrive - CEFAS\\R_PROJECTS\\OneBenthicCertain\\OUTPUTS\\Figure_4.tif"),
+       height = 600, width =480, units = "mm", dpi = 600,
+       device = "tiff",limitsize = TRUE,bg="white")#width =285
 #_______________________________________________________________________________
-#### GRAPHICAL ABSTRACT: PLOTS (FIGURE 2) ####
+#### GRAPHICAL ABSTRACT: PLOTS (FOR FIGURE 2) ####
 library(terra)
 library(viridis)
 library(easypackages)
@@ -1345,7 +1340,4 @@ PSam3=ggplot()+
 ggsave(plot = PSam3,
        filename = paste0("C:\\Users\\KMC00\\OneDrive - CEFAS\\R_PROJECTS\\OneBenthicCertain\\OUTPUTS\\sample_locations.png"),
        width = 41,height = 40,units = "cm", pointsize = 48,
-
        device = "png",limitsize = FALSE,bg="white")
-
-
