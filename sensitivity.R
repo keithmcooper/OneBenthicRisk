@@ -253,7 +253,7 @@ PSam2=ggplot()+
 ggsave(plot = PSam2,
        filename = paste0("C:\\Users\\KMC00\\OneDrive - CEFAS\\R_PROJECTS\\OneBenthicCertain\\OUTPUTS\\Figure_1.tif"),
        width = 41,height = 40,units = "cm", pointsize = 48,
-       device = "tiff",limitsize = FALSE,bg="white",dpi = 600)
+       device = "tiff",limitsize = FALSE,bg="white")
 #_______________________________________________________________________________
 #### SENSITIVITY: REMOVE 'REPLICATES' TO ADDRESS SPATIAL AUTOCORRELATION ####
 
@@ -453,6 +453,7 @@ plot(pr)
 
 ## Save as .tiff
 writeRaster(pr,'C:\\Users\\KMC00\\OneDrive - CEFAS\\R_PROJECTS\\OneBenthicCertain\\OUTPUTS\\sensitivity__quick_look.tif',overwrite=TRUE,format = "GTiff")
+
 
 
 
