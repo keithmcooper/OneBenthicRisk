@@ -878,7 +878,7 @@ figure4_2 <- annotate_figure(
 ## Save as png
 ggsave(plot = figure4_2,
        filename = paste0("C:\\Users\\KMC00\\OneDrive - CEFAS\\R_PROJECTS\\OneBenthicCertain\\OUTPUTS\\Figure_5.tif"),
-       height = 310, width =450, units = "mm", dpi = 600,
+       height = 310, width =450, units = "mm", 
        device = "tiff",limitsize = FALSE,bg="white")#width =285
 
 #_______________________________________________________________________________
@@ -1040,7 +1040,7 @@ figure4_conf2 <- annotate_figure(
 ## Save as png
 ggsave(plot = figure4_conf2,
        filename = paste0("C:\\Users\\KMC00\\OneDrive - CEFAS\\R_PROJECTS\\OneBenthicCertain\\OUTPUTS\\Figure_6.tif"),
-       height = 310, width =450, units = "mm", dpi = 600,
+       height = 310, width =450, units = "mm", 
        device = "tiff",limitsize = FALSE,bg="white")#width =285
 #_______________________________________________________________________________
 ### RISK ELEMENTS: MAP (MODELS AND NUMERIC DERIVATIVES; FIGURE 4) ####
@@ -1115,7 +1115,7 @@ fig2 <- annotate_figure(
 ## Save combined plot
 ggsave(plot = fig2,
        filename = paste0("C:\\Users\\KMC00\\OneDrive - CEFAS\\R_PROJECTS\\OneBenthicCertain\\OUTPUTS\\Figure_4.tif"),
-       height = 600, width =480, units = "mm", dpi = 600,
+       height = 600, width =480, units = "mm", 
        device = "tiff",limitsize = TRUE,bg="white")#width =285
 #_______________________________________________________________________________
 #### GRAPHICAL ABSTRACT: PLOTS (FOR FIGURE 2) ####
