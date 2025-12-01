@@ -14,11 +14,10 @@
 
 # This script 'PART 2: ASSEMBLAGES (VERSION 3.0. 2025)' is used to develop the  
 # Assemblages layer. Whilst the code includes lines for # generating a random 
-# forest Assemblages model, this is intended only as a quick # look see. The
-# final Assemblages model, and associated confidence layer should # be created 
-# using code from xxxxx.R 'PART 4: RANDOM FOREST MOELLING (SENSITIVITY and
-# ASSEMBLAGES)', with input data (i.e. point sample assemblages) generated
-# in this file.
+# forest Assemblages model, this is intended only as a quick look-see. The
+# final Assemblages model, and associated confidence layer should be created 
+# using code from Risk_ClusterModel_2025.R, with input data (i.e. point sample
+# assemblages) generated in this file.
 
 # Benthic data used in the script is sourced from the OneBenthic 
 # (https://rconnect.cefas.co.uk/onebenthic_portal/) database using sql 
@@ -2097,3 +2096,4 @@ for (i in seq_len(n_frames)) {
 ## make a movie using https://gifmaker.me/
 
 #____________________________________________________________________________________________________________________
+
