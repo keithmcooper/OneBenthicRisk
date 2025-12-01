@@ -16,9 +16,8 @@
 # used to develop the Sensitivity layer. Whilst the code includes lines for 
 # generating a random forest Sensitivity model, this is intended only as a quick
 # look see. The final Sensitivity model, and associated confidence layer should 
-# be created using code from xxxxx.R 'PART 4: RANDOM FOREST MOELLING (SENSITIVITY and
-# ASSEMBLAGES)', using input data (i.e. point sample sensitivity scores) generated
-# in this file.
+# be created using code from Risk_ContinuousVariablesModel_2025.R, using input
+# data (i.e. point sample sensitivity scores) generated in this file.
 
 # Benthic data used in the script is sourced from the OneBenthic 
 # (https://rconnect.cefas.co.uk/onebenthic_portal/) database using sql 
@@ -453,6 +452,7 @@ plot(pr)
 
 ## Save as .tiff
 writeRaster(pr,'C:\\Users\\KMC00\\OneDrive - CEFAS\\R_PROJECTS\\OneBenthicCertain\\OUTPUTS\\sensitivity__quick_look.tif',overwrite=TRUE,format = "GTiff")
+
 
 
 
