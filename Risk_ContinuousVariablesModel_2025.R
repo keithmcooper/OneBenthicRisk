@@ -1,5 +1,5 @@
 ################################################################################
-######### RANDOM FOREST MODELS - EPIFAUNA  METRICS    ##########################
+######### RANDOM FOREST MODELS - SENSITIVITY          ##########################
 ######### 25/11/2025                                  ##########################
 ################################################################################
 
@@ -45,7 +45,7 @@ rs ='PATH TO PREDICTOR RASTERS'
 ## Column 4: 'metric' variable: Cluster class / S / N   
 ## Column 5: 'type' metric format: character / numeric   
 ## Column 6: 'value' metric value   
-rd = 'Risk_Vulnerability_Assemblage_25112025.csv'
+rd = 'vulnerability_metric_sensitivity_4_modelling.csv'
 
 ## File with labels to use for environmental variables
 ## Column 1: 'Variable' with predictor column names
@@ -788,3 +788,4 @@ writeRaster(predres$relvar,
             format="GTiff",overwrite=T)
 
 ################################################################################
+
