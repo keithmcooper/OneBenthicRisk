@@ -1,5 +1,5 @@
 ################################################################################
-#########       RANDOM FOREST MODELS - FAUNA CLUSTERS      #####################
+#########       RANDOM FOREST MODEL - ASSEMBLAGE CLUSTERS     ##################
 #########               25/11/2025                         #####################
 ################################################################################
 
@@ -45,7 +45,7 @@ rs ='PATH TO PREDICTOR RASTERS'
 ## Column 4: 'metric' variable: Cluster class / S / N   
 ## Column 5: 'type' metric format: character / numeric   
 ## Column 6: 'value' metric value   
-rd = 'Risk_Vulnerability_Assemblage_25112025.csv'
+rd = 'poseidon_assemblages_4_modelling.csv'
 
 
 
@@ -1239,4 +1239,5 @@ writeRaster(ROutput$MaxClassAveProb,
 writeRaster(ROutput$CombConf,
             file = paste0(out_path,'Most_Frequent_Class_Confidence_',tax,'.tif'),
             format="GTiff",overwrite=T)
+
 
