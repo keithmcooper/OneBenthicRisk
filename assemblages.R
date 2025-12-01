@@ -347,7 +347,7 @@ head(faunal.cluster2)
 dim(faunal.cluster2)
 
 ## Save file
-write.csv(faunal.cluster2, "C:/Users/kmc00/OneDrive - CEFAS/R_PROJECTS/OneBenthicCertain/OUTPUTS/poseidon_assemblages_4_modelling.csv", row.names=FALSE)
+write.csv(faunal.cluster2, "C:/Users/kmc00/OneDrive - CEFAS/R_PROJECTS/OneBenthicCertain/OUTPUTS/Risk_Vulnerability_Assemblage_25112025.csv", row.names=FALSE)
 
 #_______________________________________________________________________________
 #### OUTPUT DATA FOR SIMPER ANALYSIS IN PRIMER ####
@@ -2096,4 +2096,5 @@ for (i in seq_len(n_frames)) {
 ## make a movie using https://gifmaker.me/
 
 #____________________________________________________________________________________________________________________
+
 
