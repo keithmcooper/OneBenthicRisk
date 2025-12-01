@@ -1,0 +1,37 @@
+﻿Variable,Layer,Unit,Label,Include
+Bathymetry,Mitchell 2019 Bathymetry (m),m,Depth~(m),Yes
+VD,SAGA Valley depth,m,Valley~depth~(m),Yes
+CDP0,SAGA Closed depressions,-,Closed~depressions,Yes
+CNBL,SAGA Channel network baselevel,m,Ch.~network~baselevel~(m),Yes
+CND,SAGA Channel network distance,m,Ch.~network~distance~(m),Yes
+LSF,SAGA LS-factor,-,LS-factor,Yes
+RSP,SAGA Relative slope posistion,-,Rel.~slope~pos.,Yes
+Wave_veloc,Mitchell 2019 Wave velocity,m s-1,Wave~velocity~(m~s^{-1}),Yes
+Current_Sp,Mitchell 2019 Current speed,m s-1,Current~speed~(m~s^{-1}),Yes
+Predicted_Gravel_Fraction,Mitchell 2019 Gravel fraction (%),-,Gravel~'%',Yes
+Predicted_Mud_Fraction,Mitchell 2019 Mud fraction (%),-,Mud~'%',Yes
+SPM_MEAN,Mitchell 2019 Average suspended matter,g m-3,Mean~SPM~(g~m^-3),Yes
+SPM_SUMMER,Mitchell 2019 Summer suspended matter,g m-3,Summer~SPM~(g~m^-3),Yes
+SPM_WINTER,Mitchell 2019 Winter suspended matter,g m-3,Winter~SPM~(g~m^-3),Yes
+dfe_mean,Bio-Oracle v.3 DissolvedIron [depthMean] Baseline 2000-2018.,mmol m-3,Diss.~Iron~(mmol~m^-3),Yes
+dfe_range,Bio-Oracle v.3 DissolvedIron [depthMean] Baseline 2000-2018.,mmol m-3,Diss.~Iron~range~(mmol~m^-3),No
+o2_mean,Bio-Oracle v.3 DissolvedMolecularOxygen [depthMean] Baseline 2000-2018.,mmol m-3,Diss.~Oxygen~(mmol~m^-3),Yes
+o2_range,Bio-Oracle v.3 DissolvedMolecularOxygen [depthMean] Baseline 2000-2018.,mmol m-3,Diss.~Oxygen~range~(mmol~m^-3),No
+no3_mean,Bio-Oracle v.3 Nitrate [depthMean] Baseline 2000-2018.,mmol m-3,Nitrate~(mmol~m^-3),Yes
+no3_range,Bio-Oracle v.3 Nitrate [depthMean] Baseline 2000-2018.,mmol m-3,Nitrate~range~(mmol~m^-3),No
+thetao_mean,Bio-Oracle v.3 OceanTemperature [depthMean] Baseline 2000-2019.,°C,Bottom~temp.~degree*C,Yes
+thetao_range,Bio-Oracle v.3 OceanTemperature [depthMean] Baseline 2000-2019.,°C,Bottom~temp.~range~degree*C,Yes
+ph_mean,Bio-Oracle v.3 pH [depthMean] Baseline 2000-2018.,-,pH,Yes
+ph_range,Bio-Oracle v.3 pH [depthMean] Baseline 2000-2018.,-,pH~range,No
+po4_mean,Bio-Oracle v.3 Phosphate [depthMean] Baseline 2000-2018.,mmol m-3,Phosphate~(mmol~m^-3),Yes
+po4_range,Bio-Oracle v.3 Phosphate [depthMean] Baseline 2000-2018.,mmol m-3,Phosphate~range~(mmol~m^-3),No
+so_mean,Bio-Oracle v.3 Salinity [depthMean] Baseline 2000-2019.,ppt,Salinity~mean~(ppt),Yes
+so_range,Bio-Oracle v.3 Salinity [depthMean] Baseline 2000-2019.,ppt,Salinity~range~(ppt),Yes
+si_mean,Bio-Oracle v.3 Silicate [depthMean] Baseline 2000-2018.,mmol m-3,Silicate~(mmol~m^-3),Yes
+si_range,Bio-Oracle v.3 Silicate [depthMean] Baseline 2000-2018.,mmol m-3,Silicate~range~(mmol~m^-3),No
+chl_mean,Bio-Oracle v.3 Chlorophyll [depthSurf] Baseline 2000-2018.,mmol m-3,Chlorophyll~(mmol~m^-3),Yes
+chl_range,Bio-Oracle v.3 Chlorophyll [depthSurf] Baseline 2000-2018.,mmol m-3,Chlorophyll~range~(mmol~m^-3),No
+KDPAR_mean_mean,Bio-Oracle v.3 DiffuseAttenuationCoefficientPAR [depthSurf] Mean 2000-2020.,-,KD~PAR~(m^-1),Yes
+KDPAR_mean_range,Bio-Oracle v.3 DiffuseAttenuationCoefficientPAR [depthSurf] Mean 2000-2020.,-,KD~PAR~range~(m^-1),No
+phyc_mean,Bio-Oracle v.3 TotalPhytoplankton [depthSurf] Baseline 2000-2020.,mmol m-3,Phytoplankton~(mmol~m^{-3}),Yes
+phyc_range,Bio-Oracle v.3 TotalPhytoplankton [depthSurf] Baseline 2000-2020.,mmol m-3,Phytoplankton~range~(mmol~m^{-3}),No
